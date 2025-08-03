@@ -1,0 +1,8 @@
+services:
+  - type: web
+    name: youtube-scraper-msx
+    env: python
+    plan: free
+    buildCommand: ""
+    startCommand: python app.py
+    region: frankfurt

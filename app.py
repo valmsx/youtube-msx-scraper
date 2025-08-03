@@ -1,26 +1,27 @@
-from flask import Flask, request, jsonify, make_response
+from flask import Flask, request, jsonify
 import requests
+from bs4 import BeautifulSoup
 import re
-import json
 
 app = Flask(__name__)
 
-# CORS sempre abilitato
 @app.after_request
 def apply_cors(response):
-    response.headers["Access-Control-Allow-Origin"] = "*"
+    response.headers["Access-Control-Allow-Origin"] = "https://msx.benzac.de"
     response.headers["Access-Control-Allow-Headers"] = "Content-Type,Authorization"
     response.headers["Access-Control-Allow-Methods"] = "GET,OPTIONS"
     return response
 
-# Ping per debug
 @app.route("/ping")
 def ping():
     return jsonify({"message": "pong"})
 
 def search_youtube_scrape(query, max_results=50):
+    # Prendiamo fino a max_results (default 50) risultati dalla ricerca YouTube (scraping)
     url = f"https://www.youtube.com/results?search_query={requests.utils.quote(query)}"
-    headers = {"User-Agent": "Mozilla/5.0"}
+    headers = {
+        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64)"
+    }
     res = requests.get(url, headers=headers)
     res.raise_for_status()
     html = res.text
@@ -29,11 +30,11 @@ def search_youtube_scrape(query, max_results=50):
     if not match:
         return []
 
-    data = json.loads(match.group(1))
-    contents = data.get("contents", {}) \
-        .get("twoColumnSearchResultsRenderer", {}) \
-        .get("primaryContents", {}) \
-        .get("sectionListRenderer", {}) \
+    data = __import__("json").loads(match.group(1))
+    contents = data.get("contents", {})\
+        .get("twoColumnSearchResultsRenderer", {})\
+        .get("primaryContents", {})\
+        .get("sectionListRenderer", {})\
         .get("contents", [])
 
     items = []
@@ -57,20 +58,9 @@ def search_youtube_scrape(query, max_results=50):
             break
     return items
 
-@app.route("/msx_search", methods=["GET", "OPTIONS"])
+@app.route("/msx_search")
 def msx_search():
-    if request.method == "OPTIONS":
-        return '', 204
-
     query = request.args.get("input", "").strip()
-    try:
-        page = max(1, int(request.args.get("page", "1")))
-    except ValueError:
-        page = 1
-
-    per_page = 8
-
-    # Risposta vuota per input mancante
     if not query:
         return jsonify({
             "type": "pages",
@@ -84,11 +74,13 @@ def msx_search():
             "items": []
         })
 
-    # Esegue lo scraping
+    page = int(request.args.get("page", "1"))
+    results_per_page = 8
+
     try:
-        all_items = search_youtube_scrape(query, max_results=50)
+        all_items = search_youtube_scrape(query, max_results=50)  # prendi max 50 risultati dallo scraping
     except Exception as e:
-        return make_response(jsonify({
+        return jsonify({
             "type": "pages",
             "headline": "Errore scraping",
             "template": {
@@ -98,47 +90,32 @@ def msx_search():
                 "imageFiller": "cover"
             },
             "items": [{
-                "title": "Errore durante scraping",
-                "playerLabel": str(e),
+                "title": "Errore",
+                "playerLabel": "Errore",
                 "image": "https://via.placeholder.com/320x180.png?text=Error",
-                "action": f"text:Errore interno"
+                "action": f"text:{str(e)}"
             }]
-        }), 500)
+        }), 500
 
-    # Suddivide in pagine
-    start = (page - 1) * per_page
-    end = start + per_page
+    start = (page - 1) * results_per_page
+    end = start + results_per_page
     page_items = all_items[start:end]
 
-    # Aggiunge navigazione
-    nav = []
-    if page > 1:
-        nav.append({
-            "title": "← Pagina precedente",
-            "playerLabel": "Vai alla pagina precedente",
-            "image": "https://via.placeholder.com/320x180.png?text=Prev",
-            "action": f"page:/msx_search?input={requests.utils.quote(query)}&page={page-1}"
-        })
-    if end < len(all_items):
-        nav.append({
-            "title": "Pagina successiva →",
-            "playerLabel": "Vai alla pagina successiva",
-            "image": "https://via.placeholder.com/320x180.png?text=Next",
-            "action": f"page:/msx_search?input={requests.utils.quote(query)}&page={page+1}"
-        })
-
-    # Costruisce il JSON di risposta
-    return jsonify({
+    response = {
         "type": "pages",
-        "headline": f"Risultati per '{query}' (pagina {page})",
+        "headline": f"Risultati per '{query}'",
         "template": {
             "type": "separate",
             "layout": "0,0,3,3",
             "color": "black",
             "imageFiller": "cover"
         },
-        "items": page_items + nav
-    })
+        "items": page_items
+    }
 
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(__import__('os').environ.get('PORT', 5000)))
+    # Se ci sono ancora risultati dopo questa pagina, aggiungi nextPage per MSX
+    if end < len(all_items):
+        next_page = page + 1
+        response["nextPage"] = f"https://youtube-msx-scraper.onrender.com/msx_search?input={requests.utils.quote(query)}&page={next_page}"
+
+    return jsonify(response)

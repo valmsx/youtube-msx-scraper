@@ -1,13 +1,15 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, make_response
 import requests
 from bs4 import BeautifulSoup
 import re
+import json
 
 app = Flask(__name__)
 
+# CORS sempre abilitato per MSX
 @app.after_request
 def apply_cors(response):
-    response.headers["Access-Control-Allow-Origin"] = "https://msx.benzac.de"
+    response.headers["Access-Control-Allow-Origin"] = "*"
     response.headers["Access-Control-Allow-Headers"] = "Content-Type,Authorization"
     response.headers["Access-Control-Allow-Methods"] = "GET,OPTIONS"
     return response
@@ -18,9 +20,7 @@ def ping():
 
 def search_youtube_scrape(query, max_results=50):
     url = f"https://www.youtube.com/results?search_query={requests.utils.quote(query)}"
-    headers = {
-        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64)"
-    }
+    headers = {"User-Agent": "Mozilla/5.0"}
     res = requests.get(url, headers=headers)
     res.raise_for_status()
     html = res.text
@@ -29,7 +29,7 @@ def search_youtube_scrape(query, max_results=50):
     if not match:
         return []
 
-    data = __import__("json").loads(match.group(1))
+    data = json.loads(match.group(1))
     contents = data.get("contents", {}) \
         .get("twoColumnSearchResultsRenderer", {}) \
         .get("primaryContents", {}) \
@@ -86,7 +86,8 @@ def msx_search():
     try:
         all_items = search_youtube_scrape(query, max_results=50)
     except Exception as e:
-        return jsonify({
+        print(f"[ERROR] Scraping failed: {e}")
+        return make_response(jsonify({
             "type": "pages",
             "headline": "Errore scraping",
             "template": {
@@ -96,19 +97,18 @@ def msx_search():
                 "imageFiller": "cover"
             },
             "items": [{
-                "title": "Errore",
-                "playerLabel": "Errore",
-                "image": "https://via.placeholder.com/320x180.png?text=Error",
-                "action": f"text:{str(e)}"
+                "title": "Errore scraping",
+                "playerLabel": "Errore scraping",
+                "image": "https://via.placeholder.com/320x180.png?text=Errore",
+                "action": f"text:Errore durante il caricamento dei risultati. Riprova più tardi."
             }]
-        }), 500
+        }), 500)
 
     start = (page - 1) * items_per_page
     end = start + items_per_page
     paginated_items = all_items[start:end]
 
     nav_items = []
-
     if page > 1:
         nav_items.append({
             "title": "Pagina precedente",

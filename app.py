@@ -7,7 +7,7 @@ app = Flask(__name__)
 
 @app.after_request
 def apply_cors(response):
-    response.headers["Access-Control-Allow-Origin"] = "*"
+    response.headers["Access-Control-Allow-Origin"] = "https://msx.benzac.de"
     response.headers["Access-Control-Allow-Headers"] = "Content-Type,Authorization"
     response.headers["Access-Control-Allow-Methods"] = "GET,OPTIONS"
     return response
@@ -16,12 +16,7 @@ def apply_cors(response):
 def ping():
     return jsonify({"message": "pong"})
 
-# Gestione preflight OPTIONS per /msx_search
-@app.route("/msx_search", methods=["OPTIONS"])
-def msx_search_options():
-    return '', 204
-
-def search_youtube_scrape(query, max_results=8):
+def search_youtube_scrape(query, max_results=100):
     url = f"https://www.youtube.com/results?search_query={requests.utils.quote(query)}"
     headers = {
         "User-Agent": "Mozilla/5.0 (X11; Linux x86_64)"
@@ -34,7 +29,7 @@ def search_youtube_scrape(query, max_results=8):
     if not match:
         return []
 
-    data = res.json if False else __import__("json").loads(match.group(1))
+    data = __import__("json").loads(match.group(1))
     contents = data.get("contents", {})\
         .get("twoColumnSearchResultsRenderer", {})\
         .get("primaryContents", {})\
@@ -65,6 +60,9 @@ def search_youtube_scrape(query, max_results=8):
 @app.route("/msx_search")
 def msx_search():
     query = request.args.get("input", "").strip()
+    page = int(request.args.get("page", "1"))
+    per_page = 15
+
     if not query:
         return jsonify({
             "type": "pages",
@@ -79,7 +77,11 @@ def msx_search():
         })
 
     try:
-        items = search_youtube_scrape(query)
+        results = search_youtube_scrape(query)
+        total = len(results)
+        start = (page - 1) * per_page
+        end = start + per_page
+        page_items = results[start:end]
     except Exception as e:
         return jsonify({
             "type": "pages",
@@ -98,14 +100,30 @@ def msx_search():
             }]
         }), 500
 
+    # Aggiungi pulsanti di navigazione se necessario
+    if end < total:
+        page_items.append({
+            "title": "Pagina successiva",
+            "playerLabel": "Next page",
+            "image": "https://via.placeholder.com/320x180.png?text=Next",
+            "action": f"page:/msx_search?input={query}&page={page+1}"
+        })
+    if page > 1:
+        page_items.insert(0, {
+            "title": "Pagina precedente",
+            "playerLabel": "Previous page",
+            "image": "https://via.placeholder.com/320x180.png?text=Prev",
+            "action": f"page:/msx_search?input={query}&page={page-1}"
+        })
+
     return jsonify({
         "type": "pages",
-        "headline": f"Risultati per '{query}'",
+        "headline": f"Risultati per '{query}' (pagina {page})",
         "template": {
             "type": "separate",
             "layout": "0,0,3,3",
             "color": "black",
             "imageFiller": "cover"
         },
-        "items": items
+        "items": page_items
     })

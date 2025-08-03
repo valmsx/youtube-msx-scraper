@@ -5,4 +5,4 @@ services:
     plan: free
     buildCommand: ""
     startCommand: python app.py
-    region: frankfurt
+    region: oregon

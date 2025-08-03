@@ -1,12 +1,13 @@
 from flask import Flask, request, jsonify
 import requests
+from bs4 import BeautifulSoup
 import re
 
 app = Flask(__name__)
 
 @app.after_request
 def apply_cors(response):
-    response.headers["Access-Control-Allow-Origin"] = "https://msx.benzac.de"
+    response.headers["Access-Control-Allow-Origin"] = "*"
     response.headers["Access-Control-Allow-Headers"] = "Content-Type,Authorization"
     response.headers["Access-Control-Allow-Methods"] = "GET,OPTIONS"
     return response
@@ -15,7 +16,12 @@ def apply_cors(response):
 def ping():
     return jsonify({"message": "pong"})
 
-def search_youtube_scrape(query, page=1, results_per_page=50):
+# Gestione preflight OPTIONS per /msx_search
+@app.route("/msx_search", methods=["OPTIONS"])
+def msx_search_options():
+    return '', 204
+
+def search_youtube_scrape(query, max_results=1000):
     url = f"https://www.youtube.com/results?search_query={requests.utils.quote(query)}"
     headers = {
         "User-Agent": "Mozilla/5.0 (X11; Linux x86_64)"
@@ -28,11 +34,11 @@ def search_youtube_scrape(query, page=1, results_per_page=50):
     if not match:
         return []
 
-    data = __import__("json").loads(match.group(1))
-    contents = data.get("contents", {}) \
-        .get("twoColumnSearchResultsRenderer", {}) \
-        .get("primaryContents", {}) \
-        .get("sectionListRenderer", {}) \
+    data = res.json if False else __import__("json").loads(match.group(1))
+    contents = data.get("contents", {})\
+        .get("twoColumnSearchResultsRenderer", {})\
+        .get("primaryContents", {})\
+        .get("sectionListRenderer", {})\
         .get("contents", [])
 
     items = []
@@ -50,23 +56,21 @@ def search_youtube_scrape(query, page=1, results_per_page=50):
                 "image": thumb,
                 "action": f"video:plugin:http://msx.benzac.de/plugins/youtube.html?id={vid}"
             })
-
-    # Paginazione
-    start = (page - 1) * results_per_page
-    end = start + results_per_page
-    return items[start:end], len(items) > end
+            if len(items) >= max_results:
+                break
+        if len(items) >= max_results:
+            break
+    return items
 
 @app.route("/msx_search")
 def msx_search():
     query = request.args.get("input", "").strip()
-    page = int(request.args.get("page", 1))
-
     if not query:
         return jsonify({
-            "type": "mixed",
+            "type": "pages",
             "headline": "YouTube Search",
             "template": {
-                "type": "mixed",
+                "type": "separate",
                 "layout": "0,0,3,3",
                 "color": "black",
                 "imageFiller": "cover"
@@ -75,13 +79,13 @@ def msx_search():
         })
 
     try:
-        items, has_more = search_youtube_scrape(query, page=page)
+        items = search_youtube_scrape(query)
     except Exception as e:
         return jsonify({
-            "type": "mixed",
+            "type": "pages",
             "headline": "Errore scraping",
             "template": {
-                "type": "mixed",
+                "type": "separate",
                 "layout": "0,0,3,3",
                 "color": "black",
                 "imageFiller": "cover"
@@ -94,22 +98,11 @@ def msx_search():
             }]
         }), 500
 
-    # Aggiungi pulsante "Pagina successiva" se ci sono altri risultati
-    if has_more:
-        next_page = page + 1
-        next_action = f"page:plugin:{request.url_root}msx_search?input={requests.utils.quote(query)}&page={next_page}"
-        items.append({
-            "title": "Pagina successiva",
-            "playerLabel": "Pagina successiva",
-            "image": "https://via.placeholder.com/320x180.png?text=Next",
-            "action": next_action
-        })
-
     return jsonify({
-        "type": "mixed",
-        "headline": f"Risultati per '{query}' (pagina {page})",
+        "type": "pages",
+        "headline": f"Risultati per '{query}'",
         "template": {
-            "type": "mixed",
+            "type": "separate",
             "layout": "0,0,3,3",
             "color": "black",
             "imageFiller": "cover"

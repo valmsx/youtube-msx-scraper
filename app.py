@@ -15,7 +15,7 @@ def apply_cors(response):
 def ping():
     return jsonify({"message": "pong"})
 
-def search_youtube_scrape(query, page=1, results_per_page=8):
+def search_youtube_scrape(query, page=1, results_per_page=50):
     url = f"https://www.youtube.com/results?search_query={requests.utils.quote(query)}"
     headers = {
         "User-Agent": "Mozilla/5.0 (X11; Linux x86_64)"

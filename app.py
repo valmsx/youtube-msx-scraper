@@ -11,6 +11,10 @@ def apply_cors(response):
     response.headers["Access-Control-Allow-Methods"] = "GET,OPTIONS"
     return response
 
+@app.route("/ping")
+def ping():
+    return jsonify({"message": "pong"})
+
 def search_youtube_scrape(query, max_results=8):
     url = f"https://www.youtube.com/results?search_query={requests.utils.quote(query)}"
     headers = {

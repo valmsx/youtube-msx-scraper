@@ -30,10 +30,10 @@ def search_youtube_scrape(query, max_results=50):
         return []
 
     data = __import__("json").loads(match.group(1))
-    contents = data.get("contents", {})\
-        .get("twoColumnSearchResultsRenderer", {})\
-        .get("primaryContents", {})\
-        .get("sectionListRenderer", {})\
+    contents = data.get("contents", {}) \
+        .get("twoColumnSearchResultsRenderer", {}) \
+        .get("primaryContents", {}) \
+        .get("sectionListRenderer", {}) \
         .get("contents", [])
 
     items = []
@@ -60,10 +60,15 @@ def search_youtube_scrape(query, max_results=50):
 @app.route("/msx_search")
 def msx_search():
     query = request.args.get("input", "").strip()
-    page = int(request.args.get("page", "1"))
-    items_per_page = 8
+    try:
+        page = int(request.args.get("page", "1"))
+        if page < 1:
+            page = 1
+    except ValueError:
+        page = 1
 
-    base_url = "https://youtube-msx-scraper.onrender.com/msx_search"  # inserire dominio reale
+    items_per_page = 8
+    base_url = "https://youtube-msx-scraper.onrender.com/msx_search"
 
     if not query:
         return jsonify({
@@ -79,37 +84,7 @@ def msx_search():
         })
 
     try:
-        all_items = search_youtube_scrape(query)
-        start = (page - 1) * items_per_page
-        end = start + items_per_page
-        paginated_items = all_items[start:end]
-
-        nav_items = []
-        if page > 1:
-            nav_items.append({
-                "title": "Pagina precedente",
-                "image": "https://via.placeholder.com/320x180.png?text=<<",
-                "action": f"plugin:{base_url}?input={query}&page={page - 1}"
-            })
-        if end < len(all_items):
-            nav_items.append({
-                "title": "Pagina successiva",
-                "image": "https://via.placeholder.com/320x180.png?text=>>",
-                "action": f"plugin:{base_url}?input={query}&page={page + 1}"
-            })
-
-        return jsonify({
-            "type": "pages",
-            "headline": f"Risultati per '{query}' (pagina {page})",
-            "template": {
-                "type": "separate",
-                "layout": "0,0,3,3",
-                "color": "black",
-                "imageFiller": "cover"
-            },
-            "items": paginated_items + nav_items
-        })
-
+        all_items = search_youtube_scrape(query, max_results=50)
     except Exception as e:
         return jsonify({
             "type": "pages",
@@ -127,3 +102,34 @@ def msx_search():
                 "action": f"text:{str(e)}"
             }]
         }), 500
+
+    start = (page - 1) * items_per_page
+    end = start + items_per_page
+    paginated_items = all_items[start:end]
+
+    nav_items = []
+
+    if page > 1:
+        nav_items.append({
+            "title": "Pagina precedente",
+            "image": "https://via.placeholder.com/320x180.png?text=<<",
+            "action": f"page:{base_url}?input={requests.utils.quote(query)}&page={page - 1}"
+        })
+    if end < len(all_items):
+        nav_items.append({
+            "title": "Pagina successiva",
+            "image": "https://via.placeholder.com/320x180.png?text=>>",
+            "action": f"page:{base_url}?input={requests.utils.quote(query)}&page={page + 1}"
+        })
+
+    return jsonify({
+        "type": "pages",
+        "headline": f"Risultati per '{query}' (pagina {page})",
+        "template": {
+            "type": "separate",
+            "layout": "0,0,3,3",
+            "color": "black",
+            "imageFiller": "cover"
+        },
+        "items": paginated_items + nav_items
+    })

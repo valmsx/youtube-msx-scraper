@@ -16,7 +16,7 @@ def apply_cors(response):
 def ping():
     return jsonify({"message": "pong"})
 
-def search_youtube_scrape(query, max_results=100):
+def search_youtube_scrape(query, max_results=50):
     url = f"https://www.youtube.com/results?search_query={requests.utils.quote(query)}"
     headers = {
         "User-Agent": "Mozilla/5.0 (X11; Linux x86_64)"
@@ -61,7 +61,9 @@ def search_youtube_scrape(query, max_results=100):
 def msx_search():
     query = request.args.get("input", "").strip()
     page = int(request.args.get("page", "1"))
-    per_page = 15
+    items_per_page = 8
+
+    base_url = "https://youtube-msx-scraper.onrender.com/msx_search"  # inserire dominio reale
 
     if not query:
         return jsonify({
@@ -77,11 +79,37 @@ def msx_search():
         })
 
     try:
-        results = search_youtube_scrape(query)
-        total = len(results)
-        start = (page - 1) * per_page
-        end = start + per_page
-        page_items = results[start:end]
+        all_items = search_youtube_scrape(query)
+        start = (page - 1) * items_per_page
+        end = start + items_per_page
+        paginated_items = all_items[start:end]
+
+        nav_items = []
+        if page > 1:
+            nav_items.append({
+                "title": "Pagina precedente",
+                "image": "https://via.placeholder.com/320x180.png?text=<<",
+                "action": f"plugin:{base_url}?input={query}&page={page - 1}"
+            })
+        if end < len(all_items):
+            nav_items.append({
+                "title": "Pagina successiva",
+                "image": "https://via.placeholder.com/320x180.png?text=>>",
+                "action": f"plugin:{base_url}?input={query}&page={page + 1}"
+            })
+
+        return jsonify({
+            "type": "pages",
+            "headline": f"Risultati per '{query}' (pagina {page})",
+            "template": {
+                "type": "separate",
+                "layout": "0,0,3,3",
+                "color": "black",
+                "imageFiller": "cover"
+            },
+            "items": paginated_items + nav_items
+        })
+
     except Exception as e:
         return jsonify({
             "type": "pages",
@@ -99,31 +127,3 @@ def msx_search():
                 "action": f"text:{str(e)}"
             }]
         }), 500
-
-    # Aggiungi pulsanti di navigazione se necessario
-    if end < total:
-        page_items.append({
-            "title": "Pagina successiva",
-            "playerLabel": "Next page",
-            "image": "https://via.placeholder.com/320x180.png?text=Next",
-            "action": f"page:/msx_search?input={query}&page={page+1}"
-        })
-    if page > 1:
-        page_items.insert(0, {
-            "title": "Pagina precedente",
-            "playerLabel": "Previous page",
-            "image": "https://via.placeholder.com/320x180.png?text=Prev",
-            "action": f"page:/msx_search?input={query}&page={page-1}"
-        })
-
-    return jsonify({
-        "type": "pages",
-        "headline": f"Risultati per '{query}' (pagina {page})",
-        "template": {
-            "type": "separate",
-            "layout": "0,0,3,3",
-            "color": "black",
-            "imageFiller": "cover"
-        },
-        "items": page_items
-    })

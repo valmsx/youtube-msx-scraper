@@ -108,19 +108,26 @@ def msx_search():
     end = start + items_per_page
     paginated_items = all_items[start:end]
 
-    nav_items = []
-    if page > 1:
-        nav_items.append({
-            "title": "Pagina precedente",
-            "image": "https://via.placeholder.com/320x180.png?text=<<",
-            "action": f"page:{base_url}?input={requests.utils.quote(query)}&page={page - 1}"
-        })
-    if end < len(all_items):
-        nav_items.append({
-            "title": "Pagina successiva",
-            "image": "https://via.placeholder.com/320x180.png?text=>>",
-            "action": f"page:{base_url}?input={requests.utils.quote(query)}&page={page + 1}"
-        })
+    # Navigazione: pagina precedente / successiva
+navigation_items = []
+if page > 1:
+    navigation_items.append({
+        "title": "Pagina precedente",
+        "playerLabel": "Pagina precedente",
+        "image": "https://via.placeholder.com/320x180.png?text=Prev",
+        "action": f"page:/msx_search?input={requests.utils.quote(query)}&page={page - 1}"
+    })
+
+if len(items) >= max_results:
+    navigation_items.append({
+        "title": "Pagina successiva",
+        "playerLabel": "Pagina successiva",
+        "image": "https://via.placeholder.com/320x180.png?text=Next",
+        "action": f"page:/msx_search?input={requests.utils.quote(query)}&page={page + 1}"
+    })
+
+items.extend(navigation_items)
+
 
     return jsonify({
         "type": "pages",

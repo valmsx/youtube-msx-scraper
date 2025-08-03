@@ -1,12 +1,11 @@
 from flask import Flask, request, jsonify, make_response
 import requests
-from bs4 import BeautifulSoup
 import re
 import json
 
 app = Flask(__name__)
 
-# CORS sempre abilitato per MSX
+# CORS sempre abilitato
 @app.after_request
 def apply_cors(response):
     response.headers["Access-Control-Allow-Origin"] = "*"
@@ -14,6 +13,7 @@ def apply_cors(response):
     response.headers["Access-Control-Allow-Methods"] = "GET,OPTIONS"
     return response
 
+# Ping per debug
 @app.route("/ping")
 def ping():
     return jsonify({"message": "pong"})
@@ -57,19 +57,20 @@ def search_youtube_scrape(query, max_results=50):
             break
     return items
 
-@app.route("/msx_search")
+@app.route("/msx_search", methods=["GET", "OPTIONS"])
 def msx_search():
+    if request.method == "OPTIONS":
+        return '', 204
+
     query = request.args.get("input", "").strip()
     try:
-        page = int(request.args.get("page", "1"))
-        if page < 1:
-            page = 1
+        page = max(1, int(request.args.get("page", "1")))
     except ValueError:
         page = 1
 
-    items_per_page = 8
-    base_url = "https://youtube-msx-scraper.onrender.com/msx_search"
+    per_page = 8
 
+    # Risposta vuota per input mancante
     if not query:
         return jsonify({
             "type": "pages",
@@ -83,10 +84,10 @@ def msx_search():
             "items": []
         })
 
+    # Esegue lo scraping
     try:
         all_items = search_youtube_scrape(query, max_results=50)
     except Exception as e:
-        print(f"[ERROR] Scraping failed: {e}")
         return make_response(jsonify({
             "type": "pages",
             "headline": "Errore scraping",
@@ -97,38 +98,36 @@ def msx_search():
                 "imageFiller": "cover"
             },
             "items": [{
-                "title": "Errore scraping",
-                "playerLabel": "Errore scraping",
-                "image": "https://via.placeholder.com/320x180.png?text=Errore",
-                "action": f"text:Errore durante il caricamento dei risultati. Riprova più tardi."
+                "title": "Errore durante scraping",
+                "playerLabel": str(e),
+                "image": "https://via.placeholder.com/320x180.png?text=Error",
+                "action": f"text:Errore interno"
             }]
         }), 500)
 
-    start = (page - 1) * items_per_page
-    end = start + items_per_page
-    paginated_items = all_items[start:end]
+    # Suddivide in pagine
+    start = (page - 1) * per_page
+    end = start + per_page
+    page_items = all_items[start:end]
 
-    # Navigazione: pagina precedente / successiva
-navigation_items = []
-if page > 1:
-    navigation_items.append({
-        "title": "Pagina precedente",
-        "playerLabel": "Pagina precedente",
-        "image": "https://via.placeholder.com/320x180.png?text=Prev",
-        "action": f"page:/msx_search?input={requests.utils.quote(query)}&page={page - 1}"
-    })
+    # Aggiunge navigazione
+    nav = []
+    if page > 1:
+        nav.append({
+            "title": "← Pagina precedente",
+            "playerLabel": "Vai alla pagina precedente",
+            "image": "https://via.placeholder.com/320x180.png?text=Prev",
+            "action": f"page:/msx_search?input={requests.utils.quote(query)}&page={page-1}"
+        })
+    if end < len(all_items):
+        nav.append({
+            "title": "Pagina successiva →",
+            "playerLabel": "Vai alla pagina successiva",
+            "image": "https://via.placeholder.com/320x180.png?text=Next",
+            "action": f"page:/msx_search?input={requests.utils.quote(query)}&page={page+1}"
+        })
 
-if len(items) >= max_results:
-    navigation_items.append({
-        "title": "Pagina successiva",
-        "playerLabel": "Pagina successiva",
-        "image": "https://via.placeholder.com/320x180.png?text=Next",
-        "action": f"page:/msx_search?input={requests.utils.quote(query)}&page={page + 1}"
-    })
-
-items.extend(navigation_items)
-
-
+    # Costruisce il JSON di risposta
     return jsonify({
         "type": "pages",
         "headline": f"Risultati per '{query}' (pagina {page})",
@@ -138,5 +137,8 @@ items.extend(navigation_items)
             "color": "black",
             "imageFiller": "cover"
         },
-        "items": paginated_items + nav_items
+        "items": page_items + nav
     })
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=int(__import__('os').environ.get('PORT', 5000)))

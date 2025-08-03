@@ -4,6 +4,12 @@ from bs4 import BeautifulSoup
 import re
 
 app = Flask(__name__)
+@app.after_request
+def apply_cors(response):
+    response.headers["Access-Control-Allow-Origin"] = "https://msx.benzac.de"
+    response.headers["Access-Control-Allow-Headers"] = "Content-Type,Authorization"
+    response.headers["Access-Control-Allow-Methods"] = "GET,OPTIONS"
+    return response
 
 def search_youtube_scrape(query, max_results=8):
     url = f"https://www.youtube.com/results?search_query={requests.utils.quote(query)}"

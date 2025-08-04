@@ -120,7 +120,7 @@ def msx_search():
 
 @app.route('/page.html')
 def page():
-    return send_from_directory('static', 'page.html')
+    return send_from_directory(app.static_folder, 'page.html')
 
 @app.route("/favorites", methods=["GET", "OPTIONS"])
 def list_favorites():

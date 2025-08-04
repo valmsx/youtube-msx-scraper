@@ -84,6 +84,17 @@ def msx_search():
 
     try:
         items = search_youtube_scrape(query)
+        try:
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO history (query) VALUES (%s)
+                ON CONFLICT (query) DO UPDATE SET timestamp = CURRENT_TIMESTAMP;
+            """, (query,))
+            conn.commit()
+except:
+    pass  # Non blocchiamo il risultato in caso di errore
+
     except Exception as e:
         return jsonify({
             "type": "pages",

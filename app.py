@@ -15,7 +15,7 @@ init_db()
 ALLOWED_ORIGINS = [
     "https://msx.benzac.de",
     "https://valmsx.github.io",              # se usi GitHub Pages
-    "https://youtube-plugin-flask.onrender.com"  # utile se chiami da browser
+    "https://youtube-msx-scraper.onrender.com"  # utile se chiami da browser
 ]
 
 @app.after_request

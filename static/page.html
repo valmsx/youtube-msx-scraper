@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>MSX Interaction Page</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <script>
+    // Parsing URL
+    const query = new URLSearchParams(window.location.search);
+    const requestURL = query.get("request");
+
+    if (requestURL) {
+      fetch(requestURL)
+        .then(response => {
+          if (!response.ok) throw new Error("Network response was not ok");
+          return response.json();
+        })
+        .then(data => {
+          window.parent.postMessage(
+            {
+              pluginMessage: {
+                type: "interaction-page",
+                status: "ok",
+                data: data
+              }
+            },
+            "*"
+          );
+        })
+        .catch(error => {
+          window.parent.postMessage(
+            {
+              pluginMessage: {
+                type: "interaction-page",
+                status: "error",
+                message: error.message
+              }
+            },
+            "*"
+          );
+        });
+    } else {
+      window.parent.postMessage(
+        {
+          pluginMessage: {
+            type: "interaction-page",
+            status: "error",
+            message: "Missing request parameter"
+          }
+        },
+        "*"
+      );
+    }
+  </script>
+</head>
+<body>
+  <p style="color: white;">Loading...</p>
+</body>
+</html>

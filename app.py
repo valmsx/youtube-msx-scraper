@@ -1,4 +1,5 @@
 from flask import Flask, request, jsonify
+from flask_cors import CORS
 import requests
 from bs4 import BeautifulSoup
 import re
@@ -6,6 +7,7 @@ from db import get_conn, init_db
 import os
 
 app = Flask(__name__)
+CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=True)
 init_db()
 
 # ============================
@@ -18,6 +20,7 @@ ALLOWED_ORIGINS = [
     "https://youtube-msx-scraper.onrender.com"  # utile se chiami da browser
 ]
 
+'''
 @app.after_request
 def apply_cors(response):
     origin = request.headers.get("Origin")
@@ -26,7 +29,7 @@ def apply_cors(response):
     response.headers["Access-Control-Allow-Headers"] = "Content-Type,Authorization"
     response.headers["Access-Control-Allow-Methods"] = "GET,POST,OPTIONS"
     return response
-
+'''
 
 # ============================
 # Gestione OPTIONS preflight
@@ -201,8 +204,10 @@ def list_favorites():
         return jsonify({"error": str(e)}), 500
 
 
-@app.route("/favorites/delete", methods=["POST"])
+@app.route("/favorites/delete", methods=["POST, OPTIONS"])
 def delete_favorite():
+    if request.method == "OPTIONS":
+        return '', 204  # Risposta vuota per preflight
     data = request.json
     url = data.get("url")
 
@@ -221,8 +226,10 @@ def delete_favorite():
 # ============================
 # Cronologia
 # ============================
-@app.route("/history", methods=["GET"])
+@app.route("/history", methods=["GET, OPTIONS"])
 def get_history():
+    if request.method == "OPTIONS":
+        return '', 204  # Risposta vuota per preflight
     try:
         with get_conn() as conn:
             with conn.cursor() as cur:

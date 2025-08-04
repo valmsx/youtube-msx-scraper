@@ -12,6 +12,14 @@ CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=True)
 
 init_db()
 
+# Helper per risposte standard MSX
+def msx_response(headline, contents):
+    return {
+        "type": "pages",
+        "headline": headline,
+        "contents": contents
+    }
+
 @app.route("/ping")
 def ping():
     return jsonify({"message": "pong"})
@@ -43,11 +51,31 @@ def search_youtube_scrape(query, max_results=20):
             vid = vr.get("videoId")
             title = vr.get("title", {}).get("runs", [{}])[0].get("text", "")
             thumb = vr.get("thumbnail", {}).get("thumbnails", [{}])[-1].get("url", "")
+            channel = vr.get("ownerText", {}).get("runs", [{}])[0].get("text", "")
+            
             items.append({
+                "type": "video",
                 "title": title,
-                "playerLabel": title,
-                "image": thumb,
-                "action": f"video:plugin:http://msx.benzac.de/plugins/youtube.html?id={vid}"
+                "id": vid,
+                "thumbnail": thumb,
+                "channel": channel,
+                "actions": [
+                    {
+                        "label": "Play",
+                        "action": "youtube:play",
+                        "payload": {"videoId": vid}
+                    },
+                    {
+                        "label": "Salva",
+                        "action": "youtube:save",
+                        "payload": {
+                            "title": title,
+                            "videoId": vid,
+                            "thumbnail": thumb,
+                            "channel": channel
+                        }
+                    }
+                ]
             })
             if len(items) >= max_results:
                 break
@@ -62,21 +90,12 @@ def msx_search():
 
     query = request.args.get("input", "").strip()
     if not query:
-        return jsonify({
-            "type": "pages",
-            "headline": "YouTube Search",
-            "template": {
-                "type": "separate",
-                "layout": "0,0,3,3",
-                "color": "black",
-                "imageFiller": "cover"
-            },
-            "items": []
-        })
+        return jsonify(msx_response("YouTube Search", []))
 
     try:
         items = search_youtube_scrape(query)
 
+        # Salva la ricerca nella cronologia
         try:
             with get_conn() as conn:
                 with conn.cursor() as cur:
@@ -88,90 +107,109 @@ def msx_search():
         except Exception as db_error:
             print(f"[WARN] Errore salvataggio history: {db_error}")
 
-        return jsonify({
-            "type": "pages",
-            "headline": f"Risultati per '{query}'",
-            "template": {
-                "type": "separate",
-                "layout": "0,0,3,3",
-                "color": "black",
-                "imageFiller": "cover"
-            },
-            "items": items
-        })
+        return jsonify(msx_response(f"Risultati per '{query}'", items))
 
     except Exception as e:
-        return jsonify({
-            "type": "pages",
-            "headline": "Errore scraping",
-            "template": {
-                "type": "separate",
-                "layout": "0,0,3,3",
-                "color": "black",
-                "imageFiller": "cover"
-            },
-            "items": [{
-                "title": "Errore",
-                "playerLabel": "Errore",
-                "image": "https://via.placeholder.com/320x180.png?text=Error",
-                "action": f"text:{str(e)}"
+        error_item = {
+            "type": "item",
+            "title": "Errore",
+            "image": "https://via.placeholder.com/320x180.png?text=Error",
+            "actions": [{
+                "label": "Dettagli",
+                "action": "text",
+                "payload": {"message": str(e)}
             }]
-        }), 500
-
-@app.route('/page.html')
-def page():
-    return send_from_directory(app.static_folder, 'page.html')
+        }
+        return jsonify(msx_response("Errore scraping", [error_item])), 500
 
 @app.route("/favorites", methods=["GET", "OPTIONS"])
 def list_favorites():
     if request.method == "OPTIONS":
         return '', 204
+        
     try:
         with get_conn() as conn:
             with conn.cursor() as cur:
-                cur.execute("SELECT title, url, image, type FROM favorites;")
+                cur.execute("""
+                    SELECT title, url, image, type, 
+                           COALESCE(video_id, url) as video_id,
+                           channel
+                    FROM favorites;
+                """)
                 rows = cur.fetchall()
-        items = [{
-            "title": r[0],
-            "action": r[1],
-            "image": r[2],
-            "playerLabel": r[0]
-        } for r in rows]
-        return jsonify({
-            "type": "pages",
-            "headline": "Preferiti",
-            "template": {
-                "type": "separate",
-                "layout": "0,0,3,3",
-                "color": "black",
-                "imageFiller": "cover"
-            },
-            "items": items
-        })
+                
+        contents = []
+        for r in rows:
+            item = {
+                "type": r[3] if r[3] in ["video", "directory"] else "video",
+                "title": r[0],
+                "id": r[4],
+                "thumbnail": r[2],
+                "actions": [
+                    {
+                        "label": "Play" if r[3] == "video" else "Apri",
+                        "action": "youtube:play",
+                        "payload": {"videoId": r[4]}
+                    },
+                    {
+                        "label": "Rimuovi",
+                        "action": "youtube:remove",
+                        "payload": {"url": r[1]}
+                    }
+                ]
+            }
+            if r[5]:  # Se esiste il campo channel
+                item["channel"] = r[5]
+            contents.append(item)
+            
+        return jsonify(msx_response("Preferiti", contents))
+        
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify(msx_response("Errore", [{
+            "type": "item",
+            "title": "Errore nel caricamento",
+            "actions": [{
+                "label": "Dettagli",
+                "action": "text",
+                "payload": {"message": str(e)}
+            }]
+        }])), 500
 
 @app.route("/favorites", methods=["POST", "OPTIONS"])
 def add_favorite():
     if request.method == "OPTIONS":
         return '', 204
+        
     data = request.json
-    title = data.get("title")
-    url = data.get("url")
-    img = data.get("image", "")
-    fav_type = data.get("type", "video")
-
-    if not title or not url:
+    required_fields = ["title", "videoId"]
+    if not all(field in data for field in required_fields):
         return jsonify({"error": "Dati mancanti"}), 400
 
     try:
         with get_conn() as conn:
             with conn.cursor() as cur:
                 cur.execute("""
-                    INSERT INTO favorites (type, title, url, image)
-                    VALUES (%s, %s, %s, %s)
-                    ON CONFLICT (url) DO NOTHING;
-                """, (fav_type, title, url, img))
+                    INSERT INTO favorites (
+                        type, 
+                        title, 
+                        url, 
+                        image, 
+                        video_id,
+                        channel
+                    ) VALUES (
+                        %s, %s, 
+                        %s, %s, 
+                        %s, %s
+                    )
+                    ON CONFLICT (video_id) DO NOTHING;
+                """, (
+                    data.get("type", "video"),
+                    data["title"],
+                    f"https://youtube.com/watch?v={data['videoId']}",
+                    data.get("thumbnail", ""),
+                    data["videoId"],
+                    data.get("channel", "")
+                ))
                 conn.commit()
         return jsonify({"success": True})
     except Exception as e:
@@ -181,16 +219,15 @@ def add_favorite():
 def delete_favorite():
     if request.method == "OPTIONS":
         return '', 204
+        
     data = request.json
-    url = data.get("url")
-
-    if not url:
+    if "url" not in data:
         return jsonify({"error": "URL mancante"}), 400
 
     try:
         with get_conn() as conn:
             with conn.cursor() as cur:
-                cur.execute("DELETE FROM favorites WHERE url = %s;", (url,))
+                cur.execute("DELETE FROM favorites WHERE url = %s;", (data["url"],))
                 conn.commit()
         return jsonify({"success": True})
     except Exception as e:
@@ -200,43 +237,54 @@ def delete_favorite():
 def get_history():
     if request.method == "OPTIONS":
         return '', 204
+        
     try:
         with get_conn() as conn:
             with conn.cursor() as cur:
-                cur.execute("SELECT query FROM history ORDER BY timestamp DESC LIMIT 30;")
+                cur.execute("""
+                    SELECT query FROM history 
+                    ORDER BY timestamp DESC 
+                    LIMIT 30;
+                """)
                 rows = cur.fetchall()
-        items = [{
+                
+        contents = [{
+            "type": "item",
             "title": r[0],
-            "playerLabel": r[0],
-            "action": f"content:https://youtube-plugin-flask.onrender.com/msx_search?input={requests.utils.quote(r[0])}",
-            "image": "https://via.placeholder.com/320x180.png?text=History"
+            "image": "https://via.placeholder.com/320x180.png?text=History",
+            "actions": [{
+                "label": "Cerca",
+                "action": "youtube:search",
+                "payload": {"query": r[0]}
+            }]
         } for r in rows]
-        return jsonify({
-            "type": "pages",
-            "headline": "Ricerche recenti",
-            "template": {
-                "type": "separate",
-                "layout": "0,0,3,3",
-                "color": "black",
-                "imageFiller": "cover"
-            },
-            "items": items
-        })
+        
+        return jsonify(msx_response("Cronologia", contents))
+        
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify(msx_response("Errore", [{
+            "type": "item",
+            "title": "Errore nel caricamento",
+            "actions": [{
+                "label": "Dettagli",
+                "action": "text",
+                "payload": {"message": str(e)}
+            }]
+        }])), 500
 
 @app.route("/history/delete", methods=["POST", "OPTIONS"])
 def delete_history_item():
     if request.method == "OPTIONS":
         return '', 204
+        
     data = request.json
-    query = data.get("query")
-    if not query:
-        return jsonify({"error": "Parametro 'query' mancante"}), 400
+    if "query" not in data:
+        return jsonify({"error": "Query mancante"}), 400
+
     try:
         with get_conn() as conn:
             with conn.cursor() as cur:
-                cur.execute("DELETE FROM history WHERE query = %s;", (query,))
+                cur.execute("DELETE FROM history WHERE query = %s;", (data["query"],))
                 conn.commit()
         return jsonify({"success": True})
     except Exception as e:

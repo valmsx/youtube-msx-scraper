@@ -83,17 +83,33 @@ def msx_search():
         })
 
     try:
+        # Fai lo scraping
         items = search_youtube_scrape(query)
+
+        # Salva nella cronologia
         try:
-    with get_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                INSERT INTO history (query) VALUES (%s)
-                ON CONFLICT (query) DO UPDATE SET timestamp = CURRENT_TIMESTAMP;
-            """, (query,))
-            conn.commit()
-    except:
-    pass  # Non blocchiamo il risultato in caso di errore
+            with get_conn() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        INSERT INTO history (query) VALUES (%s)
+                        ON CONFLICT (query) DO UPDATE SET timestamp = CURRENT_TIMESTAMP;
+                    """, (query,))
+                    conn.commit()
+        except Exception as db_error:
+            print(f"[WARN] Errore salvataggio history: {db_error}")
+
+        # Risposta finale
+        return jsonify({
+            "type": "pages",
+            "headline": f"Risultati per '{query}'",
+            "template": {
+                "type": "separate",
+                "layout": "0,0,3,3",
+                "color": "black",
+                "imageFiller": "cover"
+            },
+            "items": items
+        })
 
     except Exception as e:
         return jsonify({

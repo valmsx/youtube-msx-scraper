@@ -3,3 +3,5 @@ flask-cors
 gunicorn
 requests
 beautifulsoup4
+psycopg2-binary
+SQLAlchemy

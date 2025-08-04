@@ -171,8 +171,10 @@ def add_favorite():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-@app.route("/favorites", methods=["GET"])
+@app.route("/favorites", methods=["GET", "OPTIONS"])
 def list_favorites():
+    if request.method == "OPTIONS":
+        return '', 204  # Risposta vuota per preflight
     try:
         with get_conn() as conn:
             with conn.cursor() as cur:
@@ -197,6 +199,7 @@ def list_favorites():
         })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
 
 @app.route("/favorites/delete", methods=["POST"])
 def delete_favorite():

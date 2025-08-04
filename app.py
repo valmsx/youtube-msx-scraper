@@ -185,3 +185,46 @@ def delete_favorite():
         return jsonify({"success": True})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+@app.route("/history", methods=["GET"])
+def get_history():
+    try:
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT query FROM history ORDER BY timestamp DESC LIMIT 30;")
+                rows = cur.fetchall()
+        items = [{
+            "title": r[0],
+            "playerLabel": r[0],
+            "action": f"content:https://youtube-plugin-flask.onrender.com/msx_search?input={requests.utils.quote(r[0])}",
+            "image": "https://via.placeholder.com/320x180.png?text=History"
+        } for r in rows]
+        return jsonify({
+            "type": "pages",
+            "headline": "Ricerche recenti",
+            "template": {
+                "type": "separate",
+                "layout": "0,0,3,3",
+                "color": "black",
+                "imageFiller": "cover"
+            },
+            "items": items
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/history/delete", methods=["POST"])
+def delete_history_item():
+    data = request.json
+    query = data.get("query")
+    if not query:
+        return jsonify({"error": "Parametro 'query' mancante"}), 400
+    try:
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM history WHERE query = %s;", (query,))
+                conn.commit()
+        return jsonify({"success": True})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+

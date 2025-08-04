@@ -92,7 +92,7 @@ def msx_search():
                 ON CONFLICT (query) DO UPDATE SET timestamp = CURRENT_TIMESTAMP;
             """, (query,))
             conn.commit()
-except:
+    except:
     pass  # Non blocchiamo il risultato in caso di errore
 
     except Exception as e:

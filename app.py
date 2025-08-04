@@ -118,6 +118,10 @@ def msx_search():
             }]
         }), 500
 
+@app.route('/page.html')
+def page():
+    return send_from_directory('static', 'page.html')
+
 @app.route("/favorites", methods=["GET", "OPTIONS"])
 def list_favorites():
     if request.method == "OPTIONS":

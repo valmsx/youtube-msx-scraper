@@ -1,59 +1,29 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <meta charset="UTF-8">
+  <meta charset="UTF-8" />
   <title>MSX Interaction Page</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
   <script>
-    // Parsing URL
-    const query = new URLSearchParams(window.location.search);
-    const requestURL = query.get("request");
+    async function loadData() {
+      const currentUrl = window.location.href;
+      const dataUrl = currentUrl.split('@')[0];
 
-    if (requestURL) {
-      fetch(requestURL)
-        .then(response => {
-          if (!response.ok) throw new Error("Network response was not ok");
-          return response.json();
-        })
-        .then(data => {
-          window.parent.postMessage(
-            {
-              pluginMessage: {
-                type: "interaction-page",
-                status: "ok",
-                data: data
-              }
-            },
-            "*"
-          );
-        })
-        .catch(error => {
-          window.parent.postMessage(
-            {
-              pluginMessage: {
-                type: "interaction-page",
-                status: "error",
-                message: error.message
-              }
-            },
-            "*"
-          );
-        });
-    } else {
-      window.parent.postMessage(
-        {
-          pluginMessage: {
-            type: "interaction-page",
-            status: "error",
-            message: "Missing request parameter"
-          }
-        },
-        "*"
-      );
+      try {
+        const response = await fetch(dataUrl);
+        const data = await response.json();
+
+        if (window.tvx && typeof window.tvx.initPage === "function") {
+          window.tvx.initPage(data);
+        }
+      } catch (e) {
+        console.error("Failed to load interaction data:", e);
+      }
     }
+
+    window.addEventListener("load", loadData);
   </script>
 </head>
 <body>
-  <p style="color: white;">Loading...</p>
+  <h1 style="color:white;">Loading...</h1>
 </body>
 </html>

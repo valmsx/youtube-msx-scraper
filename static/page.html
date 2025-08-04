@@ -2,36 +2,33 @@
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>MSX Interaction Page</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-<script>
-  async function loadData() {
-    const urlParams = new URLSearchParams(window.location.search);
-    const dataUrl = urlParams.get('data');
-
-    if (!dataUrl) {
-      console.error("No data URL found");
-      return;
-    }
-
-    try {
-      const response = await fetch(dataUrl);
-      const data = await response.json();
-
-      if (window.tvx && typeof window.tvx.initPage === "function") {
-        window.tvx.initPage(data);
-      } else {
-        console.error("tvx.initPage not available");
-      }
-    } catch (e) {
-      console.error("Failed to load interaction data:", e);
-    }
-  }
-
-  window.addEventListener("load", loadData);
-</script>
+  <title>Interaction Plugin</title>
 </head>
 <body>
-  <p style="color: white;">Loading...</p>
+  <script>
+    function loadData() {
+      const params = new URLSearchParams(window.location.search);
+      const dataUrl = params.get("data");
+      if (!dataUrl) {
+        console.error("No data URL found");
+        return;
+      }
+
+      fetch(dataUrl)
+        .then(response => response.json())
+        .then(data => {
+          if (window.tvx && typeof window.tvx.setData === "function") {
+            window.tvx.setData(data);
+          } else {
+            console.error("tvx.setData not available");
+          }
+        })
+        .catch(err => {
+          console.error("Failed to load data:", err);
+        });
+    }
+
+    window.addEventListener("load", loadData);
+  </script>
 </body>
 </html>

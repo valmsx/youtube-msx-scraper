@@ -25,4 +25,11 @@ def init_db():
                     image TEXT
                 );
             """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS history (
+                    id SERIAL PRIMARY KEY,
+                    query TEXT UNIQUE NOT NULL,
+                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+            """)
             conn.commit()

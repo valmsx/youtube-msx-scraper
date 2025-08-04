@@ -1,29 +1,26 @@
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="UTF-8" />
-  <title>MSX Interaction Page</title>
-  <script>
-    async function loadData() {
-      const currentUrl = window.location.href;
-      const dataUrl = currentUrl.split('@')[0];
+<script>
+  async function loadData() {
+    const urlParams = new URLSearchParams(window.location.search);
+    const dataUrl = urlParams.get('data');
 
-      try {
-        const response = await fetch(dataUrl);
-        const data = await response.json();
-
-        if (window.tvx && typeof window.tvx.initPage === "function") {
-          window.tvx.initPage(data);
-        }
-      } catch (e) {
-        console.error("Failed to load interaction data:", e);
-      }
+    if (!dataUrl) {
+      console.error("No data URL found");
+      return;
     }
 
-    window.addEventListener("load", loadData);
-  </script>
-</head>
-<body>
-  <h1 style="color:white;">Loading...</h1>
-</body>
-</html>
+    try {
+      const response = await fetch(dataUrl);
+      const data = await response.json();
+
+      if (window.tvx && typeof window.tvx.initPage === "function") {
+        window.tvx.initPage(data);
+      } else {
+        console.error("tvx.initPage not available");
+      }
+    } catch (e) {
+      console.error("Failed to load interaction data:", e);
+    }
+  }
+
+  window.addEventListener("load", loadData);
+</script>

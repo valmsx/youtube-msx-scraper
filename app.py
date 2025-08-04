@@ -6,8 +6,11 @@ from db import get_conn, init_db
 import os
 
 app = Flask(__name__)
-init_db()  # Inizializza le tabelle se non esistono
+init_db()
 
+# ============================
+# CORS per SmartTV + GitHub Pages
+# ============================
 @app.after_request
 def apply_cors(response):
     response.headers["Access-Control-Allow-Origin"] = "*"
@@ -15,16 +18,20 @@ def apply_cors(response):
     response.headers["Access-Control-Allow-Methods"] = "GET,POST,OPTIONS"
     return response
 
+# ============================
+# Gestione OPTIONS preflight
+# ============================
+@app.route("/<path:path>", methods=["OPTIONS"])
+def handle_options_all(path):
+    return '', 204
+
 @app.route("/ping")
 def ping():
     return jsonify({"message": "pong"})
 
-@app.route("/msx_search", methods=["OPTIONS"])
-@app.route("/favorites", methods=["OPTIONS"])
-@app.route("/favorites/delete", methods=["OPTIONS"])
-def handle_options():
-    return '', 204
-
+# ============================
+# Ricerca YouTube con scraping
+# ============================
 def search_youtube_scrape(query, max_results=20):
     url = f"https://www.youtube.com/results?search_query={requests.utils.quote(query)}"
     headers = {
@@ -83,7 +90,6 @@ def msx_search():
         })
 
     try:
-        # Fai lo scraping
         items = search_youtube_scrape(query)
 
         # Salva nella cronologia
@@ -98,7 +104,6 @@ def msx_search():
         except Exception as db_error:
             print(f"[WARN] Errore salvataggio history: {db_error}")
 
-        # Risposta finale
         return jsonify({
             "type": "pages",
             "headline": f"Risultati per '{query}'",
@@ -129,22 +134,9 @@ def msx_search():
             }]
         }), 500
 
-    return jsonify({
-        "type": "pages",
-        "headline": f"Risultati per '{query}'",
-        "template": {
-            "type": "separate",
-            "layout": "0,0,3,3",
-            "color": "black",
-            "imageFiller": "cover"
-        },
-        "items": items
-    })
-
-# ==========================
-# Gestione Preferiti (DB)
-# ==========================
-
+# ============================
+# Gestione Preferiti
+# ============================
 @app.route("/favorites", methods=["POST"])
 def add_favorite():
     data = request.json
@@ -213,6 +205,9 @@ def delete_favorite():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+# ============================
+# Cronologia
+# ============================
 @app.route("/history", methods=["GET"])
 def get_history():
     try:
@@ -254,4 +249,3 @@ def delete_history_item():
         return jsonify({"success": True})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-

@@ -1,27 +1,28 @@
 import os
 import psycopg2
+from psycopg2.extras import RealDictCursor
 
+# Connessione al DB PostgreSQL
 def get_conn():
-    url = os.environ.get("DATABASE_URL")
-    if not url:
-        raise RuntimeError("DATABASE_URL non definita nelle variabili di ambiente")
-    return psycopg2.connect(url)
+    return psycopg2.connect(
+        dbname=os.environ.get("DB_NAME"),
+        user=os.environ.get("DB_USER"),
+        password=os.environ.get("DB_PASS"),
+        host=os.environ.get("DB_HOST"),
+        port=os.environ.get("DB_PORT", "5432")  # default 5432
+    )
 
+# Inizializzazione tabelle
 def init_db():
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS favorites (
                     id SERIAL PRIMARY KEY,
-                    type TEXT NOT NULL,
+                    type VARCHAR(10) NOT NULL,  -- video o channel
                     title TEXT NOT NULL,
-                    url TEXT UNIQUE NOT NULL,
+                    url TEXT NOT NULL UNIQUE,
                     image TEXT
-                );
-                CREATE TABLE IF NOT EXISTS search_history (
-                    id SERIAL PRIMARY KEY,
-                    query TEXT NOT NULL,
-                    timestamp TIMESTAMPTZ DEFAULT NOW()
                 );
             """)
             conn.commit()

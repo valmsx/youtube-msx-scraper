@@ -26,62 +26,71 @@ def ping():
 
 def search_youtube_scrape(query, max_results=20):
     url = f"https://www.youtube.com/results?search_query={requests.utils.quote(query)}"
-    headers = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64)"}
-    res = requests.get(url, headers=headers)
-    res.raise_for_status()
-    html = res.text
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+    }
+    
+    try:
+        res = requests.get(url, headers=headers, timeout=10)
+        res.raise_for_status()
+        html = res.text
 
-    match = re.search(r"var ytInitialData = ({.*?});</script>", html)
-    if not match:
-        return []
+        # Parsing più robusto con BeautifulSoup
+        soup = BeautifulSoup(html, 'html.parser')
+        script = soup.find('script', string=re.compile('var ytInitialData'))
+        
+        if not script:
+            return []
 
-    data = json.loads(match.group(1))
-    contents = data.get("contents", {})\
-        .get("twoColumnSearchResultsRenderer", {})\
-        .get("primaryContents", {})\
-        .get("sectionListRenderer", {})\
-        .get("contents", [])
+        json_str = script.string.split('var ytInitialData = ')[1].split(';')[0]
+        data = json.loads(json_str)
 
-    items = []
-    for section in contents:
-        for c in section.get("itemSectionRenderer", {}).get("contents", []):
-            vr = c.get("videoRenderer")
-            if not vr:
+        videos = []
+        contents = data.get('contents', {}).get('twoColumnSearchResultsRenderer', {}).get('primaryContents', {}).get('sectionListRenderer', {}).get('contents', [{}])[0].get('itemSectionRenderer', {}).get('contents', [])
+
+        for item in contents:
+            if len(videos) >= max_results:
+                break
+                
+            if 'videoRenderer' not in item:
                 continue
-            vid = vr.get("videoId")
-            title = vr.get("title", {}).get("runs", [{}])[0].get("text", "")
-            thumb = vr.get("thumbnail", {}).get("thumbnails", [{}])[-1].get("url", "")
-            channel = vr.get("ownerText", {}).get("runs", [{}])[0].get("text", "")
+                
+            video = item['videoRenderer']
+            video_id = video.get('videoId')
+            title = video.get('title', {}).get('runs', [{}])[0].get('text', '')
+            thumbnail = video.get('thumbnail', {}).get('thumbnails', [{}])[-1].get('url', '')
+            channel = video.get('ownerText', {}).get('runs', [{}])[0].get('text', '')
             
-            items.append({
+            videos.append({
                 "type": "video",
                 "title": title,
-                "id": vid,
-                "thumbnail": thumb,
+                "id": video_id,
+                "thumbnail": thumbnail,
                 "channel": channel,
                 "actions": [
                     {
                         "label": "Play",
                         "action": "youtube:play",
-                        "payload": {"videoId": vid}
+                        "payload": {"videoId": video_id}
                     },
                     {
                         "label": "Salva",
                         "action": "youtube:save",
                         "payload": {
                             "title": title,
-                            "videoId": vid,
-                            "thumbnail": thumb,
+                            "videoId": video_id,
+                            "thumbnail": thumbnail,
                             "channel": channel
                         }
                     }
                 ]
             })
-            if len(items) >= max_results:
-                break
-        if len(items) >= max_results:
-            break
-    return items
+
+        return videos
+
+    except Exception as e:
+        print(f"Error during scraping: {str(e)}")
+        return []
 
 @app.route("/msx_search", methods=["GET", "OPTIONS"])
 def msx_search():
@@ -112,7 +121,7 @@ def msx_search():
     except Exception as e:
         error_item = {
             "type": "item",
-            "title": "Errore",
+            "title": "Errore durante la ricerca",
             "image": "https://via.placeholder.com/320x180.png?text=Error",
             "actions": [{
                 "label": "Dettagli",
@@ -132,7 +141,7 @@ def list_favorites():
             with conn.cursor() as cur:
                 cur.execute("""
                     SELECT title, url, image, type, 
-                           COALESCE(video_id, url) as video_id,
+                           COALESCE(video_id, SUBSTRING(url FROM 'v=([a-zA-Z0-9_-]{11})') as video_id,
                            channel
                     FROM favorites;
                 """)
@@ -289,3 +298,4 @@ def delete_history_item():
         return jsonify({"success": True})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+

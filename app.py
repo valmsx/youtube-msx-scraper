@@ -9,9 +9,7 @@ from urllib.parse import quote
 app = Flask(__name__)
 init_db()
 
-# ====================
-# CORS SETUP
-# ====================
+# Configurazione CORS
 @app.after_request
 def apply_cors(response):
     response.headers["Access-Control-Allow-Origin"] = "*"
@@ -19,133 +17,103 @@ def apply_cors(response):
     response.headers["Access-Control-Allow-Methods"] = "GET,POST,OPTIONS"
     return response
 
-# ====================
-# UTILITY FUNCTIONS
-# ====================
+# Utility Functions
 def parse_youtube_date(published_text):
-    """Converte la data relativa di YouTube (es. '2 anni fa') in data assoluta"""
-    if not published_text:
-        return ""
-    
     now = datetime.now()
     try:
-        num = int(published_text.split()[0])
-        if "ora" in published_text:
+        num = int(''.join(filter(str.isdigit, published_text)))
+        if 'hour' in published_text:
             return (now - timedelta(hours=num)).strftime("%d/%m/%Y")
-        elif "giorno" in published_text:
+        elif 'day' in published_text:
             return (now - timedelta(days=num)).strftime("%d/%m/%Y")
-        elif "settimana" in published_text:
+        elif 'week' in published_text:
             return (now - timedelta(weeks=num)).strftime("%d/%m/%Y")
-        elif "mese" in published_text:
+        elif 'month' in published_text:
             return (now - timedelta(days=num*30)).strftime("%d/%m/%Y")
-        elif "anno" in published_text:
+        elif 'year' in published_text:
             return (now - timedelta(days=num*365)).strftime("%d/%m/%Y")
     except:
         return published_text
     return published_text
 
-def get_view_template(view_type):
-    """Restituisce il template in base al tipo di visualizzazione"""
-    templates = {
-        "grid": {
-            "type": "grid",
-            "layout": "0,0,2,4",
-            "display": "vertical",
-            "itemHeight": "medium"
-        },
-        "list": {
-            "type": "list",
-            "layout": "0,0,8,1",
-            "display": "horizontal",
-            "itemHeight": "small"
-        },
-        "compact": {
-            "type": "list",
-            "layout": "0,0,10,1",
-            "display": "horizontal",
-            "itemHeight": "small"
-        }
-    }
-    return templates.get(view_type, templates["grid"])
+# Menu principale MSX
+@app.route("/menu")
+def msx_menu():
+    return jsonify({
+        "type": "menu",
+        "headline": "YouTube MSX",
+        "items": [
+            {
+                "title": "Cerca YouTube",
+                "image": "https://i.ibb.co/6WXJq7P/youtube-search.png",
+                "action": f"search:request:http://{request.host}/msx_search?input=$search$"
+            },
+            {
+                "title": "Preferiti",
+                "image": "https://i.ibb.co/0jW2Z6x/favorites.png",
+                "action": f"content:load:http://{request.host}/favorites"
+            },
+            {
+                "title": "Cronologia",
+                "image": "https://i.ibb.co/7Yk6z0G/history.png",
+                "action": f"content:load:http://{request.host}/history"
+            }
+        ]
+    })
 
-# ====================
-# YOUTUBE SEARCH
-# ====================
-def search_youtube_scrape(query, max_results=20):
-    url = f"https://www.youtube.com/results?search_query={quote(query)}"
-    headers = {"User-Agent": "Mozilla/5.0"}
-    res = requests.get(url, headers=headers)
-    res.raise_for_status()
-    
-    match = re.search(r"var ytInitialData = ({.*?});</script>", res.text)
-    if not match:
-        return []
-
-    data = json.loads(match.group(1))
-    contents = data.get("contents", {})\
-        .get("twoColumnSearchResultsRenderer", {})\
-        .get("primaryContents", {})\
-        .get("sectionListRenderer", {})\
-        .get("contents", [])
-
-    items = []
-    for section in contents:
-        for c in section.get("itemSectionRenderer", {}).get("contents", []):
-            vr = c.get("videoRenderer")
-            if not vr:
-                continue
-                
-            vid = vr.get("videoId")
-            title = vr.get("title", {}).get("runs", [{}])[0].get("text", "")
-            thumb = vr.get("thumbnail", {}).get("thumbnails", [{}])[-1].get("url", "")
-            channel = vr.get("ownerText", {}).get("runs", [{}])[0].get("text", "Canale sconosciuto")
-            channel_id = vr.get("ownerText", {}).get("runs", [{}])[0].get("navigationEndpoint", {}).get("browseEndpoint", {}).get("browseId", "")
-            date = vr.get("publishedTimeText", {}).get("simpleText", "")
-            views = vr.get("viewCountText", {}).get("simpleText", "")
-
-            exact_date = parse_youtube_date(date)
-            
-            items.append({
-                "title": title,
-                "label": channel,
-                "footer": f"{exact_date} • {views}" if exact_date else f"{date} • {views}",
-                "image": thumb,
-                "action": f"video:plugin:http://msx.benzac.de/plugins/youtube.html?id={vid}",
-                "buttons": [
-                    {
-                        "title": "📺 Canale",
-                        "action": f"search:replace:http://{request.host}/channel?channel_id={channel_id}"
-                    },
-                    {
-                        "title": "💖 Aggiungi",
-                        "action": f"service:http://{request.host}/favorites?action=add&video_id={vid}&title={quote(title)}&channel={quote(channel)}"
-                    }
-                ]
-            })
-            if len(items) >= max_results:
-                break
-        if len(items) >= max_results:
-            break
-    return items
-
-@app.route("/msx_search", methods=["GET", "OPTIONS"])
+# Ricerca YouTube
+@app.route("/msx_search", methods=["GET"])
 def msx_search():
-    if request.method == "OPTIONS":
-        return '', 204
-    
     query = request.args.get("input", "").strip()
     view_type = request.args.get("view", "grid")
-
+    
     if not query:
         return jsonify({
             "type": "pages",
-            "headline": "Ricerca YouTube",
+            "headline": "YouTube Search",
             "template": get_view_template(view_type),
             "items": []
         })
 
     try:
-        items = search_youtube_scrape(query)
+        items = []
+        url = f"https://www.youtube.com/results?search_query={quote(query)}"
+        html = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}).text
+        yt_data = json.loads(re.search(r'var ytInitialData = ({.*?});</script>', html).group(1))
+        
+        for section in yt_data['contents']['twoColumnSearchResultsRenderer']['primaryContents']['sectionListRenderer']['contents']:
+            for item in section.get('itemSectionRenderer', {}).get('contents', []):
+                if 'videoRenderer' in item:
+                    vid = item['videoRenderer']['videoId']
+                    title = item['videoRenderer']['title']['runs'][0]['text']
+                    channel = item['videoRenderer']['ownerText']['runs'][0]['text']
+                    channel_id = item['videoRenderer']['ownerText']['runs'][0]['navigationEndpoint']['browseEndpoint']['browseId']
+                    thumb = item['videoRenderer']['thumbnail']['thumbnails'][-1]['url']
+                    date = parse_youtube_date(item['videoRenderer']['publishedTimeText']['simpleText'])
+                    views = item['videoRenderer']['viewCountText']['simpleText']
+                    
+                    items.append({
+                        "title": title,
+                        "label": channel,
+                        "footer": f"{date} • {views}",
+                        "image": thumb,
+                        "action": f"video:plugin:http://msx.benzac.de/plugins/youtube.html?id={vid}",
+                        "buttons": [
+                            {
+                                "title": "📺 Canale",
+                                "action": f"content:load:http://{request.host}/channel?channel_id={channel_id}"
+                            }
+                        ]
+                    })
+        
+        return jsonify({
+            "type": "pages",
+            "headline": f"Risultati: {query}",
+            "template": get_view_template(view_type),
+            "actions": get_view_actions(query, view_type),
+            "items": items[:20]
+        })
+        
     except Exception as e:
         return jsonify({
             "type": "pages",
@@ -153,76 +121,101 @@ def msx_search():
             "items": [{
                 "title": "Errore durante la ricerca",
                 "label": str(e),
-                "image": "https://via.placeholder.com/320x180.png?text=Errore",
+                "image": "https://i.ibb.co/0jW2Z6x/error.png",
                 "action": "none"
             }]
-        }), 500
+        })
 
-    return jsonify({
-        "type": "pages",
-        "headline": f"Risultati per: {query}",
-        "actions": [
-            {
-                "title": "🔍 Nuova ricerca",
-                "action": "search:request"
-            },
-            {
-                "title": "🖼️ Vista Griglia",
-                "action": f"search:replace:http://{request.host}/msx_search?input={quote(query)}&view=grid"
-            },
-            {
-                "title": "📋 Vista Lista",
-                "action": f"search:replace:http://{request.host}/msx_search?input={quote(query)}&view=list"
-            },
-            {
-                "title": "📜 Vista Compatta",
-                "action": f"search:replace:http://{request.host}/msx_search?input={quote(query)}&view=compact"
-            }
-        ],
-        "template": {
-            **get_view_template(view_type),
+# Gestione visualizzazioni
+def get_view_template(view_type):
+    templates = {
+        "grid": {
+            "type": "grid",
+            "layout": "0,0,2,4",
+            "display": "vertical",
             "color": "#FF0000",
             "imageFiller": "cover",
             "itemLayout": {
                 "titleFontSize": "medium",
                 "labelFontSize": "small",
-                "footerFontSize": "small",
-                "titleLines": 2,
-                "labelLines": 1
+                "footerFontSize": "small"
             }
         },
-        "items": items
-    })
+        "list": {
+            "type": "list",
+            "layout": "0,0,8,1",
+            "display": "horizontal",
+            "color": "#FF0000",
+            "itemLayout": {
+                "height": "small",
+                "titleFontSize": "medium",
+                "labelFontSize": "small"
+            }
+        }
+    }
+    return templates.get(view_type, templates["grid"])
 
-# ====================
-# CHANNEL VIDEOS
-# ====================
-@app.route("/channel", methods=["GET"])
+def get_view_actions(query, current_view):
+    views = ["grid", "list"]
+    icons = {"grid": "🖼️", "list": "📋"}
+    actions = []
+    
+    for view in views:
+        if view != current_view:
+            actions.append({
+                "title": f"{icons[view]} {view.capitalize()}",
+                "action": f"content:load:http://{request.host}/msx_search?input={quote(query)}&view={view}"
+            })
+    
+    actions.extend([
+        {
+            "title": "🔍 Nuova ricerca",
+            "action": "search:request"
+        },
+        {
+            "title": "🏠 Home",
+            "action": "menu:load:http://{request.host}/menu"
+        }
+    ])
+    
+    return actions
+
+# Canali YouTube
+@app.route("/channel")
 def channel_videos():
     channel_id = request.args.get("channel_id")
-    if not channel_id:
-        return jsonify({"error": "Manca l'ID del canale"}), 400
     
-    # Implementazione reale richiederebbe scraping della pagina del canale
-    # Placeholder per dimostrazione
-    return jsonify({
-        "type": "pages",
-        "headline": "Video del Canale",
-        "template": get_view_template("grid"),
-        "actions": [
-            {
-                "title": "🔙 Indietro",
-                "action": "back"
-            }
-        ],
-        "items": [{
-            "title": "Video di esempio del canale",
-            "label": "Nome Canale",
-            "footer": "01/01/2023 • 1M visualizzazioni",
-            "image": "https://via.placeholder.com/320x180",
-            "action": "none"
-        }]
-    })
+    try:
+        # Implementazione reale dello scraping del canale
+        return jsonify({
+            "type": "pages",
+            "headline": "Video del Canale",
+            "template": get_view_template("grid"),
+            "actions": [
+                {
+                    "title": "🔙 Indietro",
+                    "action": "back"
+                }
+            ],
+            "items": [
+                {
+                    "title": "Video di esempio 1",
+                    "label": "Nome Canale",
+                    "image": "https://i.ibb.co/0jW2Z6x/video-placeholder.png",
+                    "action": "none"
+                }
+            ]
+        })
+    except Exception as e:
+        return jsonify({
+            "type": "pages",
+            "headline": "Errore Canale",
+            "items": [{
+                "title": "Errore caricamento canale",
+                "label": str(e),
+                "action": "none"
+            }]
+        })
 
 # ====================
 # FAVORITES

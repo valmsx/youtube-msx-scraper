@@ -4,9 +4,10 @@ from bs4 import BeautifulSoup
 import re
 from db import get_conn, init_db
 import os
+import json
 
 app = Flask(__name__)
-init_db()  # Inizializza le tabelle se non esistono
+init_db()
 
 @app.after_request
 def apply_cors(response):
@@ -26,7 +27,7 @@ def msx_search_options():
 def search_youtube_scrape(query, max_results=20):
     url = f"https://www.youtube.com/results?search_query={requests.utils.quote(query)}"
     headers = {
-        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64)"
+        "User-Agent": "Mozilla/5.0"
     }
     res = requests.get(url, headers=headers)
     res.raise_for_status()
@@ -36,7 +37,7 @@ def search_youtube_scrape(query, max_results=20):
     if not match:
         return []
 
-    data = __import__("json").loads(match.group(1))
+    data = json.loads(match.group(1))
     contents = data.get("contents", {})\
         .get("twoColumnSearchResultsRenderer", {})\
         .get("primaryContents", {})\
@@ -52,9 +53,12 @@ def search_youtube_scrape(query, max_results=20):
             vid = vr.get("videoId")
             title = vr.get("title", {}).get("runs", [{}])[0].get("text", "")
             thumb = vr.get("thumbnail", {}).get("thumbnails", [{}])[-1].get("url", "")
+            channel = vr.get("ownerText", {}).get("runs", [{}])[0].get("text", "Sconosciuto")
+            date = vr.get("publishedTimeText", {}).get("simpleText", "")
+
             items.append({
                 "title": title,
-                "playerLabel": title,
+                "playerLabel": f"{title} - {channel} ({date})",
                 "image": thumb,
                 "action": f"video:plugin:http://msx.benzac.de/plugins/youtube.html?id={vid}"
             })
@@ -86,12 +90,6 @@ def msx_search():
         return jsonify({
             "type": "pages",
             "headline": "Errore scraping",
-            "template": {
-                "type": "separate",
-                "layout": "0,0,3,3",
-                "color": "black",
-                "imageFiller": "cover"
-            },
             "items": [{
                 "title": "Errore",
                 "playerLabel": "Errore",
@@ -112,9 +110,9 @@ def msx_search():
         "items": items
     })
 
-# ==========================
-# Gestione Preferiti (DB)
-# ==========================
+# ====================
+# FAVORITES
+# ====================
 
 @app.route("/favorites", methods=["POST"])
 def add_favorite():
@@ -123,6 +121,8 @@ def add_favorite():
     url = data.get("url")
     img = data.get("image", "")
     fav_type = data.get("type", "video")
+    channel = data.get("channel", "")
+    video_id = data.get("video_id", "")
 
     if not title or not url:
         return jsonify({"error": "Dati mancanti"}), 400
@@ -131,10 +131,10 @@ def add_favorite():
         with get_conn() as conn:
             with conn.cursor() as cur:
                 cur.execute("""
-                    INSERT INTO favorites (type, title, url, image)
-                    VALUES (%s, %s, %s, %s)
+                    INSERT INTO favorites (type, title, url, image, channel, video_id)
+                    VALUES (%s, %s, %s, %s, %s, %s)
                     ON CONFLICT (url) DO NOTHING;
-                """, (fav_type, title, url, img))
+                """, (fav_type, title, url, img, channel, video_id))
                 conn.commit()
         return jsonify({"success": True})
     except Exception as e:
@@ -145,13 +145,13 @@ def list_favorites():
     try:
         with get_conn() as conn:
             with conn.cursor() as cur:
-                cur.execute("SELECT title, url, image, type FROM favorites;")
+                cur.execute("SELECT title, url, image, type, channel FROM favorites ORDER BY created_at DESC;")
                 rows = cur.fetchall()
         items = [{
             "title": r[0],
             "action": r[1],
             "image": r[2],
-            "playerLabel": r[0]
+            "playerLabel": f"{r[0]} - {r[4]}"
         } for r in rows]
         return jsonify({
             "type": "pages",
@@ -179,6 +179,62 @@ def delete_favorite():
         with get_conn() as conn:
             with conn.cursor() as cur:
                 cur.execute("DELETE FROM favorites WHERE url = %s;", (url,))
+                conn.commit()
+        return jsonify({"success": True})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+# ====================
+# HISTORY
+# ====================
+
+@app.route("/history", methods=["GET"])
+def list_history():
+    try:
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT title, url, image, channel, created_at FROM history ORDER BY created_at DESC;")
+                rows = cur.fetchall()
+        items = [{
+            "title": r[0],
+            "action": r[1],
+            "image": r[2],
+            "playerLabel": f"{r[0]} - {r[3]} ({r[4].strftime('%Y-%m-%d')})"
+        } for r in rows]
+        return jsonify({
+            "type": "pages",
+            "headline": "Cronologia",
+            "template": {
+                "type": "separate",
+                "layout": "0,0,3,3",
+                "color": "black",
+                "imageFiller": "cover"
+            },
+            "items": items
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/history", methods=["POST"])
+def add_history():
+    data = request.json
+    title = data.get("title")
+    url = data.get("url")
+    img = data.get("image", "")
+    hist_type = data.get("type", "video")
+    channel = data.get("channel", "")
+    video_id = data.get("video_id", "")
+
+    if not title or not url:
+        return jsonify({"error": "Dati mancanti"}), 400
+
+    try:
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO history (type, title, url, image, channel, video_id)
+                    VALUES (%s, %s, %s, %s, %s, %s);
+                """, (hist_type, title, url, img, channel, video_id))
                 conn.commit()
         return jsonify({"success": True})
     except Exception as e:

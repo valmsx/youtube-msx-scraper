@@ -1,179 +1,185 @@
-from flask import Flask, request, jsonify, send_from_directory
-from flask_cors import CORS
+from flask import Flask, request, jsonify
 import requests
 from bs4 import BeautifulSoup
 import re
-import sqlite3
+from db import get_conn, init_db
 import os
 
-app = Flask(__name__, static_folder="static")
-CORS(app)
+app = Flask(__name__)
+init_db()  # Inizializza le tabelle se non esistono
 
-DB_FILE = "data.db"
-os.makedirs("static", exist_ok=True)
+@app.after_request
+def apply_cors(response):
+    response.headers["Access-Control-Allow-Origin"] = "*"
+    response.headers["Access-Control-Allow-Headers"] = "Content-Type,Authorization"
+    response.headers["Access-Control-Allow-Methods"] = "GET,POST,OPTIONS"
+    return response
 
-# --- Database ---
-def get_db_connection():
-    conn = sqlite3.connect(DB_FILE)
-    conn.row_factory = sqlite3.Row
-    return conn
+@app.route("/ping")
+def ping():
+    return jsonify({"message": "pong"})
 
-def init_db():
-    conn = get_db_connection()
-    conn.execute('''
-        CREATE TABLE IF NOT EXISTS favorites (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            title TEXT,
-            url TEXT,
-            image TEXT,
-            type TEXT,
-            video_id TEXT,
-            channel TEXT
-        )
-    ''')
-    conn.commit()
-    conn.close()
+@app.route("/msx_search", methods=["OPTIONS"])
+def msx_search_options():
+    return '', 204
 
-init_db()
+def search_youtube_scrape(query, max_results=20):
+    url = f"https://www.youtube.com/results?search_query={requests.utils.quote(query)}"
+    headers = {
+        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64)"
+    }
+    res = requests.get(url, headers=headers)
+    res.raise_for_status()
+    html = res.text
 
-# --- Funzione per estrarre video_id ---
-def extract_video_id(url):
-    match = re.search(r'(?:v=|\/)([0-9A-Za-z_-]{11})', url)
-    return match.group(1) if match else url  # fallback
-
-# --- Ricerca YouTube ---
-def search_youtube_scrape(query):
-    headers = {"User-Agent": "Mozilla/5.0"}
-    params = {"search_query": query}
-    url = "https://www.youtube.com/results"
-    r = requests.get(url, params=params, headers=headers)
-    soup = BeautifulSoup(r.text, "html.parser")
-
-    scripts = soup.find_all("script")
-    json_data = None
-    for script in scripts:
-        if "var ytInitialData" in script.text:
-            json_text = script.text.split(" = ", 1)[1].rsplit(";", 1)[0]
-            try:
-                import json
-                json_data = json.loads(json_text)
-                break
-            except Exception:
-                pass
-
-    if not json_data:
+    match = re.search(r"var ytInitialData = ({.*?});</script>", html)
+    if not match:
         return []
 
+    data = __import__("json").loads(match.group(1))
+    contents = data.get("contents", {})\
+        .get("twoColumnSearchResultsRenderer", {})\
+        .get("primaryContents", {})\
+        .get("sectionListRenderer", {})\
+        .get("contents", [])
+
     items = []
-    contents = json_data.get("contents", {}).get("twoColumnSearchResultsRenderer", {}) \
-        .get("primaryContents", {}).get("sectionListRenderer", {}) \
-        .get("contents", [])[0].get("itemSectionRenderer", {}).get("contents", [])
-
-    for video in contents:
-        video_renderer = video.get("videoRenderer")
-        if not video_renderer:
-            continue
-        video_id = video_renderer.get("videoId")
-        title = video_renderer.get("title", {}).get("runs", [{}])[0].get("text", "No Title")
-        thumbnail_url = video_renderer.get("thumbnail", {}).get("thumbnails", [{}])[-1].get("url")
-
-        items.append({
-            "type": "video",
-            "title": title,
-            "thumbnail": thumbnail_url,
-            "id": video_id,
-            "channel": "",
-            "actions": [{
-                "action": "youtube:play",
-                "label": "Play",
-                "payload": {"videoId": video_id}
-            }]
-        })
-
+    for section in contents:
+        for c in section.get("itemSectionRenderer", {}).get("contents", []):
+            vr = c.get("videoRenderer")
+            if not vr:
+                continue
+            vid = vr.get("videoId")
+            title = vr.get("title", {}).get("runs", [{}])[0].get("text", "")
+            thumb = vr.get("thumbnail", {}).get("thumbnails", [{}])[-1].get("url", "")
+            items.append({
+                "title": title,
+                "playerLabel": title,
+                "image": thumb,
+                "action": f"video:plugin:http://msx.benzac.de/plugins/youtube.html?id={vid}"
+            })
+            if len(items) >= max_results:
+                break
+        if len(items) >= max_results:
+            break
     return items
 
-# --- API: Ricerca MSX ---
 @app.route("/msx_search")
 def msx_search():
-    query = request.args.get("input", "")
+    query = request.args.get("input", "").strip()
     if not query:
-        return jsonify({"type": "pages", "headline": "Risultati", "contents": []})
-    
-    results = search_youtube_scrape(query)
+        return jsonify({
+            "type": "pages",
+            "headline": "YouTube Search",
+            "template": {
+                "type": "separate",
+                "layout": "0,0,3,3",
+                "color": "black",
+                "imageFiller": "cover"
+            },
+            "items": []
+        })
+
+    try:
+        items = search_youtube_scrape(query)
+    except Exception as e:
+        return jsonify({
+            "type": "pages",
+            "headline": "Errore scraping",
+            "template": {
+                "type": "separate",
+                "layout": "0,0,3,3",
+                "color": "black",
+                "imageFiller": "cover"
+            },
+            "items": [{
+                "title": "Errore",
+                "playerLabel": "Errore",
+                "image": "https://via.placeholder.com/320x180.png?text=Error",
+                "action": f"text:{str(e)}"
+            }]
+        }), 500
+
     return jsonify({
         "type": "pages",
         "headline": f"Risultati per '{query}'",
-        "contents": results
+        "template": {
+            "type": "separate",
+            "layout": "0,0,3,3",
+            "color": "black",
+            "imageFiller": "cover"
+        },
+        "items": items
     })
 
-# --- API: GET Preferiti ---
-@app.route("/favorites", methods=["GET"])
-def list_favorites():
-    conn = get_db_connection()
-    rows = conn.execute("""
-        SELECT title, url, image, type, video_id, COALESCE(channel, '') as channel
-        FROM favorites
-    """).fetchall()
-    conn.close()
+# ==========================
+# Gestione Preferiti (DB)
+# ==========================
 
-    contents = []
-    for r in rows:
-        video_id = r['video_id'] or extract_video_id(r['url'])
-        contents.append({
-            "type": "video",
-            "title": r['title'],
-            "thumbnail": r['image'],
-            "id": video_id,
-            "channel": r['channel'],
-            "actions": [{
-                "action": "youtube:play",
-                "label": "Play",
-                "payload": {"videoId": video_id}
-            }]
-        })
-
-    return jsonify({
-        "type": "pages",
-        "headline": "Preferiti",
-        "contents": contents
-    })
-
-# --- API: Aggiungi Preferito ---
 @app.route("/favorites", methods=["POST"])
 def add_favorite():
-    data = request.get_json()
-    if not data:
-        return jsonify({"error": "Invalid data"}), 400
+    data = request.json
+    title = data.get("title")
+    url = data.get("url")
+    img = data.get("image", "")
+    fav_type = data.get("type", "video")
 
-    video_id = data.get("videoId", "")
-    title = data.get("title", "")
-    image = data.get("image", "")
-    type_ = data.get("type", "")
-    channel = data.get("channel", "")
+    if not title or not url:
+        return jsonify({"error": "Dati mancanti"}), 400
 
-    if not video_id or not title:
-        return jsonify({"error": "Missing fields"}), 400
+    try:
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO favorites (type, title, url, image)
+                    VALUES (%s, %s, %s, %s)
+                    ON CONFLICT (url) DO NOTHING;
+                """, (fav_type, title, url, img))
+                conn.commit()
+        return jsonify({"success": True})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
-    conn = get_db_connection()
-    conn.execute("""
-        INSERT INTO favorites (title, url, image, type, video_id, channel)
-        VALUES (?, ?, ?, ?, ?, ?)
-    """, (title, f"https://youtube.com/watch?v={video_id}", image, type_, video_id, channel))
-    conn.commit()
-    conn.close()
+@app.route("/favorites", methods=["GET"])
+def list_favorites():
+    try:
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT title, url, image, type FROM favorites;")
+                rows = cur.fetchall()
+        items = [{
+            "title": r[0],
+            "action": r[1],
+            "image": r[2],
+            "playerLabel": r[0]
+        } for r in rows]
+        return jsonify({
+            "type": "pages",
+            "headline": "Preferiti",
+            "template": {
+                "type": "separate",
+                "layout": "0,0,3,3",
+                "color": "black",
+                "imageFiller": "cover"
+            },
+            "items": items
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
-    return jsonify({"status": "ok"})
+@app.route("/favorites/delete", methods=["POST"])
+def delete_favorite():
+    data = request.json
+    url = data.get("url")
 
-# --- Static files (MSX interaction plugin page) ---
-@app.route("/static/<path:filename>")
-def static_files(filename):
-    return send_from_directory("static", filename)
+    if not url:
+        return jsonify({"error": "URL mancante"}), 400
 
-# --- Health check ---
-@app.route("/ping")
-def ping():
-    return "pong"
-
-# --- Start ---
-if __name__ == "__main__":
-    app.run(debug=True)
+    try:
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM favorites WHERE url = %s;", (url,))
+                conn.commit()
+        return jsonify({"success": True})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500

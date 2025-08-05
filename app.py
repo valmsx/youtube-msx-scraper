@@ -136,61 +136,75 @@ def list_favorites():
     try:
         with get_conn() as conn:
             with conn.cursor() as cur:
-                # Query corretta per estrarre video_id
+                # Query ottimizzata per PostgreSQL
                 cur.execute("""
                     SELECT 
                         title, 
                         url, 
                         image, 
                         type,
-                        CASE
-                            WHEN url ~ 'youtube\.com/watch\?v=([a-zA-Z0-9_-]{11})' THEN 
-                                (regexp_matches(url, 'youtube\.com/watch\?v=([a-zA-Z0-9_-]{11})'))[1]
-                            WHEN url ~ 'youtu\.be/([a-zA-Z0-9_-]{11})' THEN 
-                                (regexp_matches(url, 'youtu\.be/([a-zA-Z0-9_-]{11})'))[1]
-                            ELSE NULL
-                        END as video_id,
+                        COALESCE(
+                            NULLIF(SUBSTRING(url FROM 'youtube\\.com/watch\\?v=([a-zA-Z0-9_-]{11})'), ''),
+                            NULLIF(SUBSTRING(url FROM 'youtu\\.be/([a-zA-Z0-9_-]{11})'), '')
+                        ) as video_id,
                         channel
                     FROM favorites;
                 """)
                 rows = cur.fetchall()
                 
-        contents = []
-        for r in rows:
-            item = {
-                "type": r[3] if r[3] in ["video", "directory"] else "video",
-                "title": r[0],
-                "id": r[4],
-                "thumbnail": r[2],
-                "actions": [
-                    {
-                        "label": "Play" if r[3] == "video" else "Apri",
-                        "action": "youtube:play",
-                        "payload": {"videoId": r[4]}
-                    },
-                    {
-                        "label": "Rimuovi",
-                        "action": "youtube:remove",
-                        "payload": {"url": r[1]}
-                    }
-                ]
-            }
-            if r[5]:  # Se esiste il campo channel
-                item["channel"] = r[5]
-            contents.append(item)
-            
-        return jsonify(msx_response("Preferiti", contents))
-        
+                # Se video_id è ancora vuoto, prova a estrarre via Python
+                contents = []
+                for r in rows:
+                    video_id = r[4] or self.extract_video_id(r[1])  # r[1] = url
+                    contents.append({
+                        "type": r[3] if r[3] in ["video", "directory"] else "video",
+                        "title": r[0],
+                        "id": video_id,
+                        "thumbnail": r[2],
+                        "channel": r[5],
+                        "actions": [
+                            {
+                                "label": "Play",
+                                "action": "youtube:play",
+                                "payload": {"videoId": video_id}
+                            }
+                        ]
+                    })
+                    
+                return jsonify({
+                    "type": "pages",
+                    "headline": "Preferiti",
+                    "contents": contents
+                })
+                
     except Exception as e:
-        return jsonify(msx_response("Errore", [{
-            "type": "item",
-            "title": "Errore nel caricamento",
-            "actions": [{
-                "label": "Dettagli",
-                "action": "text",
-                "payload": {"message": str(e)}
+        return jsonify({
+            "type": "pages",
+            "headline": "Errore",
+            "contents": [{
+                "type": "item",
+                "title": "Errore nel caricamento",
+                "actions": [{
+                    "label": "Dettagli",
+                    "action": "text",
+                    "payload": {"message": str(e)}
+                }]
             }]
-        }])), 500
+        }), 500
+
+def extract_video_id(self, url):
+    """Fallback Python per estrazione video_id"""
+    import re
+    patterns = [
+        r'youtube\.com/watch\?v=([a-zA-Z0-9_-]{11})',
+        r'youtu\.be/([a-zA-Z0-9_-]{11})',
+        r'embed/([a-zA-Z0-9_-]{11})'
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, url)
+        if match:
+            return match.group(1)
+    return url.split('/')[-1][:11]  # Ultimo tentativo
 
 @app.route("/favorites", methods=["POST", "OPTIONS"])
 def add_favorite():

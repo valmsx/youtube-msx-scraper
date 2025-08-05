@@ -136,7 +136,7 @@ def list_favorites():
     try:
         with get_conn() as conn:
             with conn.cursor() as cur:
-                # Query ottimizzata per PostgreSQL
+                # Query che verifica dinamicamente le colonne
                 cur.execute("""
                     SELECT 
                         title, 
@@ -147,26 +147,27 @@ def list_favorites():
                             NULLIF(SUBSTRING(url FROM 'youtube\\.com/watch\\?v=([a-zA-Z0-9_-]{11})'), ''),
                             NULLIF(SUBSTRING(url FROM 'youtu\\.be/([a-zA-Z0-9_-]{11})'), '')
                         ) as video_id,
-                        channel
+                        CASE WHEN EXISTS (
+                            SELECT 1 FROM information_schema.columns 
+                            WHERE table_name = 'favorites' AND column_name = 'channel'
+                        ) THEN channel ELSE '' END as channel
                     FROM favorites;
                 """)
                 rows = cur.fetchall()
                 
-                # Se video_id è ancora vuoto, prova a estrarre via Python
                 contents = []
                 for r in rows:
-                    video_id = r[4] or self.extract_video_id(r[1])  # r[1] = url
                     contents.append({
                         "type": r[3] if r[3] in ["video", "directory"] else "video",
                         "title": r[0],
-                        "id": video_id,
+                        "id": r[4] or self.extract_video_id(r[1]),
                         "thumbnail": r[2],
-                        "channel": r[5],
+                        "channel": r[5],  # Ora sicuro di esistere
                         "actions": [
                             {
                                 "label": "Play",
                                 "action": "youtube:play",
-                                "payload": {"videoId": video_id}
+                                "payload": {"videoId": r[4] or r[1]}
                             }
                         ]
                     })

@@ -20,10 +20,6 @@ def apply_cors(response):
 def ping():
     return jsonify({"message": "pong"})
 
-@app.route("/msx_search", methods=["OPTIONS"])
-def msx_search_options():
-    return '', 204
-
 def search_youtube_scrape(query, max_results=20):
     url = f"https://www.youtube.com/results?search_query={requests.utils.quote(query)}"
     headers = {
@@ -58,7 +54,7 @@ def search_youtube_scrape(query, max_results=20):
 
             items.append({
                 "title": title,
-                "playerLabel": f"{title} - {channel} ({date})",
+                "playerLabel": f"{title}\n{channel} • {date}",
                 "image": thumb,
                 "action": f"video:plugin:http://msx.benzac.de/plugins/youtube.html?id={vid}"
             })
@@ -68,8 +64,11 @@ def search_youtube_scrape(query, max_results=20):
             break
     return items
 
-@app.route("/msx_search")
+@app.route("/msx_search", methods=["GET", "OPTIONS"])
 def msx_search():
+    if request.method == "OPTIONS":
+        return '', 204
+    
     query = request.args.get("input", "").strip()
     if not query:
         return jsonify({

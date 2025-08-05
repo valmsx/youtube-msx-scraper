@@ -133,16 +133,24 @@ def msx_search():
 
 @app.route("/favorites", methods=["GET", "OPTIONS"])
 def list_favorites():
-    if request.method == "OPTIONS":
-        return '', 204
-        
     try:
         with get_conn() as conn:
             with conn.cursor() as cur:
+                # Query corretta per estrarre video_id
                 cur.execute("""
-                    SELECT title, url, image, type, 
-                           COALESCE(video_id, SUBSTRING(url FROM 'v=([a-zA-Z0-9_-]{11})') as video_id,
-                           channel
+                    SELECT 
+                        title, 
+                        url, 
+                        image, 
+                        type,
+                        CASE
+                            WHEN url ~ 'youtube\.com/watch\?v=([a-zA-Z0-9_-]{11})' THEN 
+                                (regexp_matches(url, 'youtube\.com/watch\?v=([a-zA-Z0-9_-]{11})'))[1]
+                            WHEN url ~ 'youtu\.be/([a-zA-Z0-9_-]{11})' THEN 
+                                (regexp_matches(url, 'youtu\.be/([a-zA-Z0-9_-]{11})'))[1]
+                            ELSE NULL
+                        END as video_id,
+                        channel
                     FROM favorites;
                 """)
                 rows = cur.fetchall()

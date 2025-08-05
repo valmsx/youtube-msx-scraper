@@ -193,7 +193,7 @@ def list_favorites():
             }]
         }), 500
 
-def extract_video_id(self, url):
+def extract_video_id(url):
     """Fallback Python per estrazione video_id"""
     import re
     patterns = [

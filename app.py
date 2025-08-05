@@ -1,9 +1,8 @@
+from datetime import datetime, timedelta
 from flask import Flask, request, jsonify
 import requests
-from bs4 import BeautifulSoup
 import re
 from db import get_conn, init_db
-import os
 import json
 
 app = Flask(__name__)
@@ -20,11 +19,35 @@ def apply_cors(response):
 def ping():
     return jsonify({"message": "pong"})
 
-def search_youtube_scrape(query, max_results=20):
+def parse_youtube_date(published_text):
+    """Convert YouTube relative date (e.g. '2 years ago') to exact date"""
+    if not published_text:
+        return ""
+    
+    now = datetime.now()
+    try:
+        if "hour" in published_text:
+            hours = int(published_text.split()[0])
+            return (now - timedelta(hours=hours)).strftime("%d/%m/%Y")
+        elif "day" in published_text:
+            days = int(published_text.split()[0])
+            return (now - timedelta(days=days)).strftime("%d/%m/%Y")
+        elif "week" in published_text:
+            weeks = int(published_text.split()[0])
+            return (now - timedelta(weeks=weeks)).strftime("%d/%m/%Y")
+        elif "month" in published_text:
+            months = int(published_text.split()[0])
+            return (now - timedelta(days=months*30)).strftime("%d/%m/%Y")
+        elif "year" in published_text:
+            years = int(published_text.split()[0])
+            return (now - timedelta(days=years*365)).strftime("%d/%m/%Y")
+    except:
+        return published_text
+    return published_text
+
+def search_youtube_scrape(query, max_results=20, layout="grid"):
     url = f"https://www.youtube.com/results?search_query={requests.utils.quote(query)}"
-    headers = {
-        "User-Agent": "Mozilla/5.0"
-    }
+    headers = {"User-Agent": "Mozilla/5.0"}
     res = requests.get(url, headers=headers)
     res.raise_for_status()
     html = res.text
@@ -49,14 +72,19 @@ def search_youtube_scrape(query, max_results=20):
             vid = vr.get("videoId")
             title = vr.get("title", {}).get("runs", [{}])[0].get("text", "")
             thumb = vr.get("thumbnail", {}).get("thumbnails", [{}])[-1].get("url", "")
-            channel = vr.get("ownerText", {}).get("runs", [{}])[0].get("text", "Sconosciuto")
+            channel = vr.get("ownerText", {}).get("runs", [{}])[0].get("text", "Unknown")
             date = vr.get("publishedTimeText", {}).get("simpleText", "")
 
+            exact_date = parse_youtube_date(date)
             items.append({
                 "title": title,
-                "playerLabel": f"{title}\n{channel} • {date}",
+                "playerLabel": title,
+                "label": f"{channel}\n{exact_date} • {date}" if exact_date else f"{channel} • {date}",
                 "image": thumb,
-                "action": f"video:plugin:http://msx.benzac.de/plugins/youtube.html?id={vid}"
+                "action": f"video:plugin:http://msx.benzac.de/plugins/youtube.html?id={vid}",
+                "style": {
+                    "height": "medium" if layout == "grid" else "small"
+                }
             })
             if len(items) >= max_results:
                 break
@@ -70,44 +98,70 @@ def msx_search():
         return '', 204
     
     query = request.args.get("input", "").strip()
+    layout = request.args.get("layout", "grid")
+
     if not query:
         return jsonify({
             "type": "pages",
             "headline": "YouTube Search",
             "template": {
-                "type": "separate",
-                "layout": "0,0,3,3",
-                "color": "black",
-                "imageFiller": "cover"
+                "type": "separate" if layout == "grid" else "list",
+                "layout": "0,0,2,4" if layout == "grid" else "0,0,8,1",
+                "color": "#FF0000",
+                "imageFiller": "cover",
+                "display": "vertical" if layout == "grid" else "horizontal"
             },
             "items": []
         })
 
     try:
-        items = search_youtube_scrape(query)
+        items = search_youtube_scrape(query, layout=layout)
     except Exception as e:
         return jsonify({
             "type": "pages",
-            "headline": "Errore scraping",
+            "headline": "Error",
             "items": [{
-                "title": "Errore",
-                "playerLabel": "Errore",
+                "title": "Error",
+                "label": str(e),
                 "image": "https://via.placeholder.com/320x180.png?text=Error",
-                "action": f"text:{str(e)}"
+                "action": "none"
             }]
         }), 500
 
-    return jsonify({
+    response_data = {
         "type": "pages",
-        "headline": f"Risultati per '{query}'",
+        "headline": f"YouTube: {query}",
+        "actions": [
+            {
+                "title": "Grid View",
+                "action": f"search:replace:http://{request.host}/msx_search?input={query}&layout=grid"
+            },
+            {
+                "title": "List View",
+                "action": f"search:replace:http://{request.host}/msx_search?input={query}&layout=list"
+            },
+            {
+                "title": "Compact View",
+                "action": f"search:replace:http://{request.host}/msx_search?input={query}&layout=compact"
+            }
+        ],
         "template": {
-            "type": "separate",
-            "layout": "0,0,3,3",
-            "color": "black",
-            "imageFiller": "cover"
+            "type": "separate" if layout == "grid" else "list",
+            "layout": "0,0,2,4" if layout == "grid" else ("0,0,8,1" if layout == "list" else "0,0,10,1"),
+            "color": "#FF0000",
+            "imageFiller": "cover",
+            "display": "vertical" if layout == "grid" else "horizontal",
+            "itemLayout": {
+                "titleFontSize": "medium",
+                "labelFontSize": "small",
+                "titleLines": 2,
+                "labelLines": 2
+            }
         },
         "items": items
-    })
+    }
+
+    return jsonify(response_data)
 
 # ====================
 # FAVORITES
@@ -124,7 +178,7 @@ def add_favorite():
     video_id = data.get("video_id", "")
 
     if not title or not url:
-        return jsonify({"error": "Dati mancanti"}), 400
+        return jsonify({"error": "Missing data"}), 400
 
     try:
         with get_conn() as conn:
@@ -150,16 +204,18 @@ def list_favorites():
             "title": r[0],
             "action": r[1],
             "image": r[2],
-            "playerLabel": f"{r[0]} - {r[4]}"
+            "label": r[4],
+            "style": {"height": "medium"}
         } for r in rows]
         return jsonify({
             "type": "pages",
-            "headline": "Preferiti",
+            "headline": "Favorites",
             "template": {
                 "type": "separate",
-                "layout": "0,0,3,3",
-                "color": "black",
-                "imageFiller": "cover"
+                "layout": "0,0,2,4",
+                "color": "#FF0000",
+                "imageFiller": "cover",
+                "display": "vertical"
             },
             "items": items
         })
@@ -172,7 +228,7 @@ def delete_favorite():
     url = data.get("url")
 
     if not url:
-        return jsonify({"error": "URL mancante"}), 400
+        return jsonify({"error": "Missing URL"}), 400
 
     try:
         with get_conn() as conn:
@@ -198,16 +254,18 @@ def list_history():
             "title": r[0],
             "action": r[1],
             "image": r[2],
-            "playerLabel": f"{r[0]} - {r[3]} ({r[4].strftime('%Y-%m-%d')})"
+            "label": f"{r[3]}\n{r[4].strftime('%d/%m/%Y')}",
+            "style": {"height": "medium"}
         } for r in rows]
         return jsonify({
             "type": "pages",
-            "headline": "Cronologia",
+            "headline": "History",
             "template": {
                 "type": "separate",
-                "layout": "0,0,3,3",
-                "color": "black",
-                "imageFiller": "cover"
+                "layout": "0,0,2,4",
+                "color": "#FF0000",
+                "imageFiller": "cover",
+                "display": "vertical"
             },
             "items": items
         })
@@ -225,7 +283,7 @@ def add_history():
     video_id = data.get("video_id", "")
 
     if not title or not url:
-        return jsonify({"error": "Dati mancanti"}), 400
+        return jsonify({"error": "Missing data"}), 400
 
     try:
         with get_conn() as conn:
@@ -238,3 +296,6 @@ def add_history():
         return jsonify({"success": True})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000, debug=True)

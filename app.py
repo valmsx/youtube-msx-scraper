@@ -160,7 +160,7 @@ def list_favorites():
                     contents.append({
                         "type": r[3] if r[3] in ["video", "directory"] else "video",
                         "title": r[0],
-                        "id": r[4] or self.extract_video_id(r[1]),
+                        "id": r[4] or extract_video_id(r[1]),
                         "thumbnail": r[2],
                         "channel": r[5],  # Ora sicuro di esistere
                         "actions": [

@@ -1,15 +1,13 @@
-from datetime import datetime, timedelta
 from flask import Flask, request, jsonify
 import requests
+from bs4 import BeautifulSoup
 import re
 from db import get_conn, init_db
-import json
-from urllib.parse import quote
+import os
 
 app = Flask(__name__)
-init_db()
+init_db()  # Inizializza le tabelle se non esistono
 
-# Configurazione CORS
 @app.after_request
 def apply_cors(response):
     response.headers["Access-Control-Allow-Origin"] = "*"
@@ -17,216 +15,114 @@ def apply_cors(response):
     response.headers["Access-Control-Allow-Methods"] = "GET,POST,OPTIONS"
     return response
 
-# Utility Functions
-def parse_youtube_date(published_text):
-    now = datetime.now()
-    try:
-        num = int(''.join(filter(str.isdigit, published_text)))
-        if 'hour' in published_text:
-            return (now - timedelta(hours=num)).strftime("%d/%m/%Y")
-        elif 'day' in published_text:
-            return (now - timedelta(days=num)).strftime("%d/%m/%Y")
-        elif 'week' in published_text:
-            return (now - timedelta(weeks=num)).strftime("%d/%m/%Y")
-        elif 'month' in published_text:
-            return (now - timedelta(days=num*30)).strftime("%d/%m/%Y")
-        elif 'year' in published_text:
-            return (now - timedelta(days=num*365)).strftime("%d/%m/%Y")
-    except:
-        return published_text
-    return published_text
+@app.route("/ping")
+def ping():
+    return jsonify({"message": "pong"})
 
-# Menu principale MSX
-@app.route("/menu")
-def msx_menu():
-    return jsonify({
-        "type": "menu",
-        "headline": "YouTube MSX",
-        "items": [
-            {
-                "title": "Cerca YouTube",
-                "image": "https://i.ibb.co/6WXJq7P/youtube-search.png",
-                "action": f"search:request:http://{request.host}/msx_search?input=$search$"
-            },
-            {
-                "title": "Preferiti",
-                "image": "https://i.ibb.co/0jW2Z6x/favorites.png",
-                "action": f"content:load:http://{request.host}/favorites"
-            },
-            {
-                "title": "Cronologia",
-                "image": "https://i.ibb.co/7Yk6z0G/history.png",
-                "action": f"content:load:http://{request.host}/history"
-            }
-        ]
-    })
+@app.route("/msx_search", methods=["OPTIONS"])
+def msx_search_options():
+    return '', 204
 
-# Ricerca YouTube
-@app.route("/msx_search", methods=["GET"])
+def search_youtube_scrape(query, max_results=20):
+    url = f"https://www.youtube.com/results?search_query={requests.utils.quote(query)}"
+    headers = {
+        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64)"
+    }
+    res = requests.get(url, headers=headers)
+    res.raise_for_status()
+    html = res.text
+
+    match = re.search(r"var ytInitialData = ({.*?});</script>", html)
+    if not match:
+        return []
+
+    data = __import__("json").loads(match.group(1))
+    contents = data.get("contents", {})\
+        .get("twoColumnSearchResultsRenderer", {})\
+        .get("primaryContents", {})\
+        .get("sectionListRenderer", {})\
+        .get("contents", [])
+
+    items = []
+    for section in contents:
+        for c in section.get("itemSectionRenderer", {}).get("contents", []):
+            vr = c.get("videoRenderer")
+            if not vr:
+                continue
+            vid = vr.get("videoId")
+            title = vr.get("title", {}).get("runs", [{}])[0].get("text", "")
+            thumb = vr.get("thumbnail", {}).get("thumbnails", [{}])[-1].get("url", "")
+            items.append({
+                "title": title,
+                "playerLabel": title,
+                "image": thumb,
+                "action": f"video:plugin:http://msx.benzac.de/plugins/youtube.html?id={vid}"
+            })
+            if len(items) >= max_results:
+                break
+        if len(items) >= max_results:
+            break
+    return items
+
+@app.route("/msx_search")
 def msx_search():
     query = request.args.get("input", "").strip()
-    view_type = request.args.get("view", "grid")
-    
     if not query:
         return jsonify({
             "type": "pages",
             "headline": "YouTube Search",
-            "template": get_view_template(view_type),
+            "template": {
+                "type": "separate",
+                "layout": "0,0,3,3",
+                "color": "black",
+                "imageFiller": "cover"
+            },
             "items": []
         })
 
     try:
-        items = []
-        url = f"https://www.youtube.com/results?search_query={quote(query)}"
-        html = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}).text
-        yt_data = json.loads(re.search(r'var ytInitialData = ({.*?});</script>', html).group(1))
-        
-        for section in yt_data['contents']['twoColumnSearchResultsRenderer']['primaryContents']['sectionListRenderer']['contents']:
-            for item in section.get('itemSectionRenderer', {}).get('contents', []):
-                if 'videoRenderer' in item:
-                    vid = item['videoRenderer']['videoId']
-                    title = item['videoRenderer']['title']['runs'][0]['text']
-                    channel = item['videoRenderer']['ownerText']['runs'][0]['text']
-                    channel_id = item['videoRenderer']['ownerText']['runs'][0]['navigationEndpoint']['browseEndpoint']['browseId']
-                    thumb = item['videoRenderer']['thumbnail']['thumbnails'][-1]['url']
-                    date = parse_youtube_date(item['videoRenderer']['publishedTimeText']['simpleText'])
-                    views = item['videoRenderer']['viewCountText']['simpleText']
-                    
-                    items.append({
-                        "title": title,
-                        "label": channel,
-                        "footer": f"{date} • {views}",
-                        "image": thumb,
-                        "action": f"video:plugin:http://msx.benzac.de/plugins/youtube.html?id={vid}",
-                        "buttons": [
-                            {
-                                "title": "📺 Canale",
-                                "action": f"content:load:http://{request.host}/channel?channel_id={channel_id}"
-                            }
-                        ]
-                    })
-        
-        return jsonify({
-            "type": "pages",
-            "headline": f"Risultati: {query}",
-            "template": get_view_template(view_type),
-            "actions": get_view_actions(query, view_type),
-            "items": items[:20]
-        })
-        
+        items = search_youtube_scrape(query)
     except Exception as e:
         return jsonify({
             "type": "pages",
-            "headline": "Errore",
+            "headline": "Errore scraping",
+            "template": {
+                "type": "separate",
+                "layout": "0,0,3,3",
+                "color": "black",
+                "imageFiller": "cover"
+            },
             "items": [{
-                "title": "Errore durante la ricerca",
-                "label": str(e),
-                "image": "https://i.ibb.co/0jW2Z6x/error.png",
-                "action": "none"
+                "title": "Errore",
+                "playerLabel": "Errore",
+                "image": "https://via.placeholder.com/320x180.png?text=Error",
+                "action": f"text:{str(e)}"
             }]
-        })
+        }), 500
 
-# Gestione visualizzazioni
-def get_view_template(view_type):
-    templates = {
-        "grid": {
-            "type": "grid",
-            "layout": "0,0,2,4",
-            "display": "vertical",
-            "color": "#FF0000",
-            "imageFiller": "cover",
-            "itemLayout": {
-                "titleFontSize": "medium",
-                "labelFontSize": "small",
-                "footerFontSize": "small"
-            }
+    return jsonify({
+        "type": "pages",
+        "headline": f"Risultati per '{query}'",
+        "template": {
+            "type": "separate",
+            "layout": "0,0,3,3",
+            "color": "black",
+            "imageFiller": "cover"
         },
-        "list": {
-            "type": "list",
-            "layout": "0,0,8,1",
-            "display": "horizontal",
-            "color": "#FF0000",
-            "itemLayout": {
-                "height": "small",
-                "titleFontSize": "medium",
-                "labelFontSize": "small"
-            }
-        }
-    }
-    return templates.get(view_type, templates["grid"])
+        "items": items
+    })
 
-def get_view_actions(query, current_view):
-    views = ["grid", "list"]
-    icons = {"grid": "🖼️", "list": "📋"}
-    actions = []
-    
-    for view in views:
-        if view != current_view:
-            actions.append({
-                "title": f"{icons[view]} {view.capitalize()}",
-                "action": f"content:load:http://{request.host}/msx_search?input={quote(query)}&view={view}"
-            })
-    
-    actions.extend([
-        {
-            "title": "🔍 Nuova ricerca",
-            "action": "search:request"
-        },
-        {
-            "title": "🏠 Home",
-            "action": "menu:load:http://{request.host}/menu"
-        }
-    ])
-    
-    return actions
+# ==========================
+# Gestione Preferiti (DB)
+# ==========================
 
-# Canali YouTube
-@app.route("/channel")
-def channel_videos():
-    channel_id = request.args.get("channel_id")
-    
-    try:
-        # Implementazione reale dello scraping del canale
-        return jsonify({
-            "type": "pages",
-            "headline": "Video del Canale",
-            "template": get_view_template("grid"),
-            "actions": [
-                {
-                    "title": "🔙 Indietro",
-                    "action": "back"
-                }
-            ],
-            "items": [
-                {
-                    "title": "Video di esempio 1",
-                    "label": "Nome Canale",
-                    "image": "https://i.ibb.co/0jW2Z6x/video-placeholder.png",
-                    "action": "none"
-                }
-            ]
-        })
-    except Exception as e:
-        return jsonify({
-            "type": "pages",
-            "headline": "Errore Canale",
-            "items": [{
-                "title": "Errore caricamento canale",
-                "label": str(e),
-                "action": "none"
-            }]
-        })
-
-# ====================
-# FAVORITES
-# ====================
 @app.route("/favorites", methods=["POST"])
 def add_favorite():
-    data = request.json or request.form
+    data = request.json
     title = data.get("title")
-    url = data.get("url") or f"video:plugin:http://msx.benzac.de/plugins/youtube.html?id={data.get('video_id')}"
-    img = data.get("image", f"https://img.youtube.com/vi/{data.get('video_id')}/hqdefault.jpg")
-    channel = data.get("channel", "")
+    url = data.get("url")
+    img = data.get("image", "")
+    fav_type = data.get("type", "video")
 
     if not title or not url:
         return jsonify({"error": "Dati mancanti"}), 400
@@ -235,10 +131,10 @@ def add_favorite():
         with get_conn() as conn:
             with conn.cursor() as cur:
                 cur.execute("""
-                    INSERT INTO favorites (title, url, image, channel)
+                    INSERT INTO favorites (type, title, url, image)
                     VALUES (%s, %s, %s, %s)
                     ON CONFLICT (url) DO NOTHING;
-                """, (title, url, img, channel))
+                """, (fav_type, title, url, img))
                 conn.commit()
         return jsonify({"success": True})
     except Exception as e:
@@ -249,40 +145,33 @@ def list_favorites():
     try:
         with get_conn() as conn:
             with conn.cursor() as cur:
-                cur.execute("SELECT title, url, image, channel FROM favorites ORDER BY created_at DESC;")
+                cur.execute("SELECT title, url, image, type FROM favorites;")
                 rows = cur.fetchall()
-        
         items = [{
             "title": r[0],
-            "label": r[3],
-            "image": r[2],
             "action": r[1],
-            "buttons": [
-                {
-                    "title": "❌ Rimuovi",
-                    "action": f"service:http://{request.host}/favorites/delete?url={quote(r[1])}"
-                }
-            ]
+            "image": r[2],
+            "playerLabel": r[0]
         } for r in rows]
-
         return jsonify({
             "type": "pages",
             "headline": "Preferiti",
-            "actions": [
-                {
-                    "title": "🔙 Indietro",
-                    "action": "back"
-                }
-            ],
-            "template": get_view_template("grid"),
+            "template": {
+                "type": "separate",
+                "layout": "0,0,3,3",
+                "color": "black",
+                "imageFiller": "cover"
+            },
             "items": items
         })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-@app.route("/favorites/delete", methods=["GET", "POST"])
+@app.route("/favorites/delete", methods=["POST"])
 def delete_favorite():
-    url = request.args.get("url") or (request.json or request.form).get("url")
+    data = request.json
+    url = data.get("url")
+
     if not url:
         return jsonify({"error": "URL mancante"}), 400
 
@@ -290,88 +179,6 @@ def delete_favorite():
         with get_conn() as conn:
             with conn.cursor() as cur:
                 cur.execute("DELETE FROM favorites WHERE url = %s;", (url,))
-                conn.commit()
-        return jsonify({"success": True})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-# ====================
-# HISTORY
-# ====================
-@app.route("/history", methods=["POST"])
-def add_history():
-    data = request.json or request.form
-    title = data.get("title")
-    url = data.get("url") or f"video:plugin:http://msx.benzac.de/plugins/youtube.html?id={data.get('video_id')}"
-    img = data.get("image", f"https://img.youtube.com/vi/{data.get('video_id')}/hqdefault.jpg")
-    channel = data.get("channel", "")
-
-    if not title or not url:
-        return jsonify({"error": "Dati mancanti"}), 400
-
-    try:
-        with get_conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute("""
-                    INSERT INTO history (title, url, image, channel)
-                    VALUES (%s, %s, %s, %s);
-                """, (title, url, img, channel))
-                conn.commit()
-        return jsonify({"success": True})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-@app.route("/history", methods=["GET"])
-def list_history():
-    try:
-        with get_conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute("""
-                    SELECT title, url, image, channel, created_at 
-                    FROM history 
-                    ORDER BY created_at DESC
-                    LIMIT 50;
-                """)
-                rows = cur.fetchall()
-        
-        items = [{
-            "title": r[0],
-            "label": f"{r[3]} • {r[4].strftime('%d/%m/%Y')}",
-            "image": r[2],
-            "action": r[1],
-            "buttons": [
-                {
-                    "title": "💖 Aggiungi",
-                    "action": f"service:http://{request.host}/favorites?action=add&title={quote(r[0])}&url={quote(r[1])}"
-                }
-            ]
-        } for r in rows]
-
-        return jsonify({
-            "type": "pages",
-            "headline": "Cronologia",
-            "actions": [
-                {
-                    "title": "🔙 Indietro",
-                    "action": "back"
-                },
-                {
-                    "title": "🗑️ Pulisci",
-                    "action": f"service:http://{request.host}/history/clear"
-                }
-            ],
-            "template": get_view_template("list"),
-            "items": items
-        })
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-@app.route("/history/clear", methods=["POST"])
-def clear_history():
-    try:
-        with get_conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute("DELETE FROM history;")
                 conn.commit()
         return jsonify({"success": True})
     except Exception as e:

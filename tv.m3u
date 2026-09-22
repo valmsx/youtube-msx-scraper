@@ -35,6 +35,17 @@ https://mediapolis.rai.it/relinker/relinkerServlet.htm?cont=308718&output=7
 https://mediapolis.rai.it/relinker/relinkerServlet.htm?cont=308718&output=7&forceUserAgent=raiplayappletv
 #EXTINF:-1 tvg-id="Rai2.it" tvg-logo="https://raw.githubusercontent.com/maginetweb-arch/TVITALIA/refs/heads/main/TVL/rai2.png" tvg-chno="2" group-title="Rai" http-user-agent="Mozilla/5.0",Rai 2 - Header Mozilla + param forceUserAgent
 https://mediapolis.rai.it/relinker/relinkerServlet.htm?cont=308718&output=7&forceUserAgent=raiplayappletv
+
+
+#EXTINF:-1 tvg-id="Rai2.it" tvg-logo="https://raw.githubusercontent.com/maginetweb-arch/TVITALIA/refs/heads/main/TVL/rai2.png" tvg-chno="2" group-title="Rai" http-user-agent="HbbTV/1.6.1" http-referrer="https://www.raiplay.it",Rai 2 - Con Referer
+https://mediapolis.rai.it/relinker/relinkerServlet.htm?cont=308718&output=7&forceUserAgent=raiplayappletv
+
+#EXTINF:-1 tvg-id="Rai2.it" tvg-logo="https://raw.githubusercontent.com/maginetweb-arch/TVITALIA/refs/heads/main/TVL/rai2.png" tvg-chno="2" group-title="Rai" http-user-agent="HbbTV/1.6.1" http-accept-language="it-IT,it;q=0.9",Rai 2 - Con Language
+https://mediapolis.rai.it/relinker/relinkerServlet.htm?cont=308718&output=7&forceUserAgent=raiplayappletv
+
+#EXTINF:-1 tvg-id="Rai2.it" tvg-logo="https://raw.githubusercontent.com/maginetweb-arch/TVITALIA/refs/heads/main/TVL/rai2.png" tvg-chno="2" group-title="Rai" http-user-agent="HbbTV/1.6.1" http-accept="application/x-mpegURL",Rai 2 - Con Accept HLS
+https://mediapolis.rai.it/relinker/relinkerServlet.htm?cont=308718&output=7&forceUserAgent=raiplayappletv
+
 #EXTINF:-1 tvg-id="Rai1.it"tvg-logo="https://raw.githubusercontent.com/maginetweb-arch/TVITALIA/refs/heads/main/TVL/rai1.png"tvg-chno="1",group-title="Rai":http-user-agent="HbbTV/1.6.1",Rai 1
 https://mediapolis.rai.it/relinker/relinkerServlet.htm?cont=2606803&output=7&forceUserAgent=raiplayappletv
 #EXTINF:-1 tvg-id="Rai1.it" tvg-chno="1" group-title="Rai",Rai 1

@@ -1,4 +1,6 @@
 #EXTM3U
+#EXTINF:-1 tvg-id="Rai2.it" tvg-logo="https://raw.githubusercontent.com/maginetweb-arch/TVITALIA/refs/heads/main/TVL/rai2.png" tvg-chno="2" group-title="Rai" http-user-agent="HbbTV/1.6.1 (+DRM)",Rai 2
+https://vdnwndmsb1-8e7439fdb1694c8da3a0fd63e4dda518.msvdn.net/raidue1/hls/playlist_ma_1800-5000.m3u8?baseuri=%2Fraidue1%2Fhls%2F&tstart=0&tend=1790179857&tof=86400&tk2=8afc2f59a3f6aaa322527bd7595b02b001eb9fca554ba75c4742c111dd306ec3
 #EXTINF:-1 tvg-id="Rai2.it" tvg-logo="https://raw.githubusercontent.com/maginetweb-arch/TVITALIA/refs/heads/main/TVL/rai2.png" tvg-chno="2" group-title="Rai" http-user-agent="HbbTV/1.6.1 (+DRM)",Rai 2 - HbbTV Standard
 https://mediapolis.rai.it/relinker/relinkerServlet.htm?cont=308718&output=7
 #EXTINF:-1 tvg-id="Rai2.it" tvg-logo="https://raw.githubusercontent.com/maginetweb-arch/TVITALIA/refs/heads/main/TVL/rai2.png" tvg-chno="2" group-title="Rai" http-user-agent="Mozilla/5.0 (Linux; Android 9; Philips)",Rai 2 - Android Standard
